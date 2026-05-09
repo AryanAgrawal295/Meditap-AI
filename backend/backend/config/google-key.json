@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "meditap-ocr",
+  "private_key_id": "7995914790e564698b462c5be1153e2fc04ca8e3",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQD6ZFcyJ7Xa9PRX\n7PDQEI5keh7qTmoMJnrJjCj3raqgbY7Rad4U4L+8+1dSTQux7XdSejWuyiYgdGrj\nv2QMhYETglMKwQzRTPbmR7CDZW1hz90sCFgyDO6fMzxXXJqNv9Nes21gwmNQdtof\nKRJLK/W1Ejb+K44vjuwRQVejf5uU1EPOj9DU1SnXun8xpYOCm94yhQUR0CQLSt6i\nhiAm2lR1Vx9ZNOnjSXJMHQSvt8bGM7XOx6KohDGpf26SiwZbWJjcfw5jLsdnx39N\nhbOf9+wz2eC8pLuBrzz+d65d8xPcueu+gn336DxYCApf8NeKtHvtvNgo1nrPHlXs\nz9EMK4yxAgMBAAECggEABamig7C8dv/SbVEfVpNDRyAwZgvhL9ZocTmtXQGVUeS8\nZb3DTx1QlMNp44N4y9yzFb9MCsCJWXNMjgtAZdyYkVKBkoUQZ0TachWFt0kCTuOa\nrMHhDbu3Y0wPNaoTWDiR/QqpgvZOdO3FK8572o2bVE2dxwSA5hAxREgiJWFPyU8y\nqCk8dKR1XpcCRuHYe6E1CnycdzK+n7sw+uzuqkMU+L7vH3hu6rXMm6kC8fPpbyE4\nsan89pSd5+x0SDXLJ1D6F0B0Ek/GK1TLOrwhWoDf//0HWcEvnmg5kNzkgKEgX6fK\np/eZzPKeTvFNADCkabAVt5J+1nFwd/yNKjERFElWAQKBgQD/YtGSCBkJMaoakDyi\ntkPqwiIShvZ1heRld/QYXkLY07Sf97dbXlZ2UwhbVtEzA1JOi9yTEPMNmUsmx/E+\nx/9IK01EfxPFT3/5SEATdB6uvzshflAE/628BZpEJrkFHkzpj4EKZK5SQT25BOK3\nTwZQVU3D3Yn5jcwGdECtF/kBAQKBgQD6/nLEE/onw+bVIu6nwpLHCWqIseSdnqvv\n33jGe0a3GaFPqRNDkzn2Y1Q/0YfV4tnVes5z9Hqq2LgIt+loYpioErYw9ko1ZcZF\nhkHJ8pgOsThTzYN6fc0WIGeNqepdt4KGFEZ5PrwKP57zt//sUMDRxd32ceXxbmY2\nYkJcTybbsQKBgDB/9cjD3O1QDzvoNHu6HX/RymK2WsvK16slcqfGDu/alKzkgF/L\ntKPX9PhTrnr/oHvmN8d+KopkmE8PHZOMq8Bq6MufToPkKyuOOwz2unT5QCOGN3Ab\nlkTk030p1W1Rac3ZQOpWYHyigzRF50Bks5BCAvi1c+R+t0ZqgXXd3Z4BAoGBAMtx\nbZLzYmPTDYqbGvjN5O0B++E62ETOdS0kZR/0klgdpTwNnri6YFQPJR3pd4Hts4Wv\nWiJw+vD6YwlmEQH0USqCqDy9lV781J5L+Y14Xroh+bcrsLObvp19vJH+NSKreVe2\nnXzvVbm04eFItl9VAUXHbWex4KE2TBEuyf1KhwOxAoGBAITx87L6xM/28Tn1J3hr\n2fiFLH94vvc68iHGAKqlQd5KX+sM8a92gZCH7JoyQvm/CMAjxptgQQmNGgPKsMRE\n8d4LZnE42liT3sWBWNo3+rO18TebtxSNVwkTJa56CS6b9wDPvD4ly8uCqCA+RGvP\nFu26THHWrIabqAx6nTig2e2a\n-----END PRIVATE KEY-----\n",
+  "client_email": "meditap-ocr-service@meditap-ocr.iam.gserviceaccount.com",
+  "client_id": "113372123930962704174",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/meditap-ocr-service%40meditap-ocr.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
