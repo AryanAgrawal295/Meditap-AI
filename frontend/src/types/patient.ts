@@ -20,6 +20,15 @@ export type RecordType = 'consultation' | 'diagnosis' | 'lab-test' | 'surgery' |
 export type Severity = 'normal' | 'critical' | 'emergency' | 'follow-up';
 export type ConditionTag = 'chronic' | 'acute' | 'allergy-related' | 'injury' | 'infection' | 'lifestyle';
 
+export interface MedicalAttachment {
+  publicId?: string | null;
+  fileName?: string | null;
+  mimeType?: string | null;
+  resourceType?: string | null;
+  format?: string | null;
+  accessUrl: string | null;
+}
+
 export interface MedicalRecord {
   id: string;
   date: string;
@@ -29,7 +38,7 @@ export interface MedicalRecord {
   hospital: string;
   department?: string;
   description: string;
-  attachments?: string[];
+  attachments?: MedicalAttachment[];
   recordType: RecordType;
   severity: Severity;
   tags: ConditionTag[];
@@ -82,6 +91,9 @@ export interface MedicationPlan {
   patient: string;
   source: 'ocr' | 'manual' | 'import';
   prescriptionText?: string;
+  sourceFileUrl?: string;
+  sourceFilePublicId?: string;
+  sourceFileName?: string;
   medicines: MedicationMedicine[];
   agentTrace: {
     agent: string;

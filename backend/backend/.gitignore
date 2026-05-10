@@ -16,6 +16,7 @@ yarn-error.log*
 # Build folders
 dist/
 build/
+uploads/
 
 # OS files
 .DS_Store
@@ -27,3 +28,6 @@ Thumbs.db
 
 # Optional
 coverage/
+
+# Local secrets
+config/google-key.json

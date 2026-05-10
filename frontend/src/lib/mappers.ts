@@ -1,4 +1,4 @@
-import { MedicalRecord, Patient, Prescription } from '@/types/patient';
+import { MedicalAttachment, MedicalRecord, Patient, Prescription } from '@/types/patient';
 
 type BackendPatient = {
   _id?: string;
@@ -33,7 +33,14 @@ type BackendMedicalRecord = {
   severity?: MedicalRecord['severity'] | null;
   tags?: string[] | null;
   prescriptions?: string[] | null;
-  attachments?: string[] | null;
+  attachments?: Array<{
+    publicId?: string | null;
+    fileName?: string | null;
+    mimeType?: string | null;
+    resourceType?: string | null;
+    format?: string | null;
+    accessUrl?: string | null;
+  } | string> | null;
   fileUrl?: string | null;
   doctor?: {
     name?: string | null;
@@ -96,6 +103,40 @@ export function mapBackendMedicalRecord(record: BackendMedicalRecord): MedicalRe
     ['chronic', 'acute', 'allergy-related', 'injury', 'infection', 'lifestyle'].includes(tag)
   );
 
+  const attachments: MedicalAttachment[] | undefined =
+    record.attachments && record.attachments.length > 0
+      ? record.attachments
+          .map((attachment) =>
+            typeof attachment === 'string'
+              ? {
+                  accessUrl: attachment,
+                  fileName: null,
+                  mimeType: null,
+                  publicId: null,
+                  resourceType: null,
+                  format: null,
+                }
+              : {
+                  accessUrl: attachment.accessUrl || null,
+                  fileName: attachment.fileName || null,
+                  mimeType: attachment.mimeType || null,
+                  publicId: attachment.publicId || null,
+                  resourceType: attachment.resourceType || null,
+                  format: attachment.format || null,
+                }
+          )
+          .filter((attachment) => Boolean(attachment.accessUrl))
+      : record.fileUrl
+        ? [{
+            accessUrl: record.fileUrl,
+            fileName: null,
+            mimeType: null,
+            publicId: null,
+            resourceType: null,
+            format: null,
+          }]
+        : undefined;
+
   return {
     id: record._id,
     date: record.visitDate || new Date().toISOString(),
@@ -105,12 +146,7 @@ export function mapBackendMedicalRecord(record: BackendMedicalRecord): MedicalRe
     hospital: record.hospital || 'Unknown Hospital',
     department: record.department || undefined,
     description,
-    attachments:
-      record.attachments && record.attachments.length > 0
-        ? record.attachments
-        : record.fileUrl
-          ? [record.fileUrl]
-          : undefined,
+    attachments,
     recordType: record.recordType || 'consultation',
     severity: record.severity || 'normal',
     tags,

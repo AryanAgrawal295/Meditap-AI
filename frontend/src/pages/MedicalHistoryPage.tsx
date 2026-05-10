@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Calendar, MapPin, Stethoscope, Activity, Pill, Heart, FileText, Syringe, AlertCircle } from 'lucide-react';
+import { Plus, Calendar, MapPin, Stethoscope, Activity, Pill, Heart, FileText, Syringe, AlertCircle, Paperclip, ExternalLink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { DashboardLayout } from '@/layouts/DashboardLayout';
 import { Button } from '@/components/ui/button';
@@ -236,6 +236,33 @@ export default function MedicalHistoryPage() {
                                   {tag}
                                 </Badge>
                               ))}
+                            </div>
+                          )}
+
+                          {record.attachments && record.attachments.length > 0 && (
+                            <div className="rounded-lg border border-border bg-secondary/40 p-3">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Paperclip size={14} className="text-primary" />
+                                <span className="text-sm font-medium text-foreground">Uploaded Files</span>
+                              </div>
+                              <div className="space-y-2">
+                                {record.attachments.map((attachment, attachmentIndex) => (
+                                  <a
+                                    key={`${record.id}-attachment-${attachmentIndex}`}
+                                    href={attachment.accessUrl || '#'}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    onClick={(event) => event.stopPropagation()}
+                                    aria-disabled={!attachment.accessUrl}
+                                    className="flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 text-sm text-primary hover:bg-accent/40"
+                                  >
+                                    <span className="truncate">
+                                      {attachment.fileName || `Attachment ${attachmentIndex + 1}`}
+                                    </span>
+                                    <ExternalLink size={14} className="shrink-0" />
+                                  </a>
+                                ))}
+                              </div>
                             </div>
                           )}
                         </div>

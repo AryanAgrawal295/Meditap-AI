@@ -1,10 +1,10 @@
 const extractText = require("../services/textractService");
 const analyzeMedicalText = require("../services/textService");
+const { uploadBuffer } = require("../services/cloudinaryService");
 const {
   buildDoseTimeline,
   extractStructuredMedicines,
 } = require("../services/medicationAgentService");
-const fs = require("fs");
 
 function cleanOCRText(text) {
   return text
@@ -15,11 +15,22 @@ function cleanOCRText(text) {
 
 exports.processPrescription = async (req, res) => {
   try {
+    if (!req.file?.buffer) {
+      return res.status(400).json({
+        error: "No file uploaded",
+        message: "Attach a prescription image or PDF.",
+      });
+    }
 
-    const imagePath = req.file.path;
+    const uploadedFile = await uploadBuffer(req.file.buffer, {
+      folder: `${process.env.CLOUDINARY_FOLDER || "meditap"}/ocr-inputs`,
+      public_id: req.file.originalname
+        ? req.file.originalname.replace(/\.[^/.]+$/, "")
+        : undefined,
+    });
 
     // Step 1: OCR
-    const rawText = await extractText(imagePath);
+    const rawText = await extractText(req.file.buffer);
 
     // Step 2: Clean OCR text
     const cleanedText = cleanOCRText(rawText);
@@ -55,10 +66,8 @@ exports.processPrescription = async (req, res) => {
     const structuredMedicines = await extractStructuredMedicines(cleanedText);
     const medicineSchedule = buildDoseTimeline(structuredMedicines);
 
-    // Step 7: delete uploaded image
-    fs.unlinkSync(imagePath);
-
     res.json({
+      fileUrl: uploadedFile.secure_url,
       rawText,
       cleanedText,
       conditions,
@@ -77,33 +86,3 @@ exports.processPrescription = async (req, res) => {
     });
   }
 };
-// const extractText = require("../services/textractService");
-// const analyzeMedicalText = require("../services/textService");
-// const fs = require("fs");
-
-// exports.processPrescription = async (req, res) => {
-//   try {
-//     const imagePath = req.file.path;
-
-//     // Step 1: OCR
-//     const rawText = await extractText(imagePath);
-
-//     // Step 2: Medical entity extraction
-//     const entities = await analyzeMedicalText(rawText);
-
-//     // Step 3: delete uploaded file
-//     fs.unlinkSync(imagePath);
-
-//     res.json({
-//       rawText,
-//       entities
-//     });
-
-//   } catch (error) {
-//     console.error("OCR PROCESS ERROR:", error);
-//     res.status(500).json({
-//       error: "Processing failed",
-//       message: error.message
-//     });
-//   }
-// };

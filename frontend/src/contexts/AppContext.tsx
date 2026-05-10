@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { AuthUser, MedicalRecord, MedicationPlan, Patient, Prescription, UserRole } from '@/types/patient';
+import { AuthUser, MedicalAttachment, MedicalRecord, MedicationPlan, Patient, Prescription, UserRole } from '@/types/patient';
 import { apiRequest } from '@/lib/api';
 import { derivePrescriptions, mapBackendMedicalRecord, mapBackendPatient } from '@/lib/mappers';
 import {
@@ -27,7 +27,14 @@ type BackendMedicalRecord = {
   severity?: MedicalRecord['severity'] | null;
   tags?: string[] | null;
   prescriptions?: string[] | null;
-  attachments?: string[] | null;
+  attachments?: Array<{
+    publicId?: string | null;
+    fileName?: string | null;
+    mimeType?: string | null;
+    resourceType?: string | null;
+    format?: string | null;
+    accessUrl?: string | null;
+  } | string> | null;
   fileUrl?: string | null;
   doctor?: {
     name?: string | null;
@@ -61,10 +68,10 @@ interface AppContextType {
     recordType: MedicalRecord['recordType'];
     severity: MedicalRecord['severity'];
     tags: MedicalRecord['tags'];
-    attachments?: string[];
+    attachments?: MedicalAttachment[];
     prescriptions?: string[];
   }) => Promise<void>;
-  uploadMedicalReport: (file: File) => Promise<string>;
+  uploadMedicalReport: (file: File) => Promise<MedicalAttachment>;
   uploadPrescriptionForSchedule: (file: File) => Promise<MedicationPlan>;
   verifyDoseWithAI: (payload: {
     planId: string;
@@ -360,7 +367,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     recordType: MedicalRecord['recordType'];
     severity: MedicalRecord['severity'];
     tags: MedicalRecord['tags'];
-    attachments?: string[];
+    attachments?: MedicalAttachment[];
     prescriptions?: string[];
   }) => {
     if (!currentPatientId) {
@@ -399,13 +406,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const formData = new FormData();
     formData.append('report', file);
 
-    const response = await apiRequest<{ record: BackendMedicalRecord }>("/medical/upload-report/" + currentPatientId, {
+    const response = await apiRequest<{
+      file: {
+        publicId?: string | null;
+        fileName?: string | null;
+        mimeType?: string | null;
+        resourceType?: string | null;
+        format?: string | null;
+        accessUrl?: string | null;
+      };
+    }>("/medical/upload-report/" + currentPatientId, {
       method: 'POST',
       auth: true,
       body: formData,
     });
 
-    return response.record.fileUrl || file.name;
+    return {
+      publicId: response.file.publicId || null,
+      fileName: response.file.fileName || file.name,
+      mimeType: response.file.mimeType || file.type || null,
+      resourceType: response.file.resourceType || null,
+      format: response.file.format || null,
+      accessUrl: response.file.accessUrl || null,
+    };
   }, [currentPatientId]);
 
   const uploadPrescriptionForSchedule = useCallback(async (file: File) => {

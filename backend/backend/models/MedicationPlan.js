@@ -80,6 +80,11 @@ const medicationPlanSchema = new mongoose.Schema(
       enum: ["ocr", "manual", "import"],
       default: "ocr",
     },
+    sourceFileUrl: String,
+    sourceFilePublicId: String,
+    sourceFileName: String,
+    sourceFileResourceType: String,
+    sourceFileFormat: String,
     medicines: [medicineSchema],
     agentTrace: [
       {

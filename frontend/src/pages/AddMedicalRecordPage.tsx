@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useApp } from '@/contexts/AppContext';
 import { useToast } from '@/hooks/use-toast';
-import { RecordType, Severity, ConditionTag } from '@/types/patient';
+import { MedicalAttachment, RecordType, Severity, ConditionTag } from '@/types/patient';
 import { cn } from '@/lib/utils';
 
 const recordTypes: { value: RecordType; label: string }[] = [
@@ -56,7 +56,7 @@ export default function AddMedicalRecordPage() {
     tags: [] as ConditionTag[],
   });
 
-  const [attachments, setAttachments] = useState<string[]>([]);
+  const [attachments, setAttachments] = useState<MedicalAttachment[]>([]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -300,7 +300,7 @@ export default function AddMedicalRecordPage() {
                   {attachments.map((file, index) => (
                     <div key={index} className="flex items-center gap-2 text-sm text-muted-foreground">
                       <span>File</span>
-                      <span>{file}</span>
+                      <span>{file.fileName || `Attachment ${index + 1}`}</span>
                     </div>
                   ))}
                 </div>

@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   Upload,
   XCircle,
+  ExternalLink,
 } from 'lucide-react';
 import { DashboardLayout } from '@/layouts/DashboardLayout';
 import { Button } from '@/components/ui/button';
@@ -192,7 +193,7 @@ export default function PrescriptionsPage() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
                 className="hidden"
                 onChange={(event) => handleUpload(event.target.files?.[0])}
               />
@@ -247,7 +248,7 @@ export default function PrescriptionsPage() {
                 <div className="rounded-lg border border-dashed border-border p-8 text-center">
                   <FileImage className="mx-auto text-muted-foreground" size={32} />
                   <p className="mt-3 font-medium text-foreground">No AI medication schedule yet</p>
-                  <p className="text-sm text-muted-foreground">Upload a prescription image to generate the todo timeline.</p>
+                  <p className="text-sm text-muted-foreground">Upload a prescription PDF, JPG, JPEG, or PNG to generate the todo timeline.</p>
                 </div>
               )}
 
@@ -317,6 +318,28 @@ export default function PrescriptionsPage() {
                 ))}
               </div>
             </section>
+
+            {medicationPlans[0]?.sourceFileUrl && (
+              <section className="rounded-lg border border-border bg-card p-4 lg:p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="font-display text-xl text-foreground">Uploaded Prescription</h2>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Original file stored in Cloudinary and used for OCR.
+                    </p>
+                  </div>
+                  <Button asChild variant="outline" size="sm">
+                    <a href={medicationPlans[0].sourceFileUrl} target="_blank" rel="noreferrer">
+                      <ExternalLink size={16} />
+                      Open File
+                    </a>
+                  </Button>
+                </div>
+                <p className="mt-3 text-sm text-muted-foreground truncate">
+                  {medicationPlans[0].sourceFileName || medicationPlans[0].sourceFileUrl}
+                </p>
+              </section>
+            )}
 
             {medicationPlans[0]?.medicines.length > 0 && (
               <section className="space-y-3">

@@ -1,6 +1,6 @@
-const fs = require("fs");
 const MedicationPlan = require("../models/MedicationPlan");
 const extractText = require("../services/textractService");
+const { buildSignedDownloadUrl, uploadBuffer } = require("../services/cloudinaryService");
 const {
   buildDoseTimeline,
   extractStructuredMedicines,
@@ -33,6 +33,15 @@ function toClientPlan(plan) {
     patient: plan.patient,
     source: plan.source,
     prescriptionText: plan.prescriptionText,
+    sourceFileUrl:
+      buildSignedDownloadUrl({
+        publicId: plan.sourceFilePublicId,
+        format: plan.sourceFileFormat,
+        resourceType: plan.sourceFileResourceType,
+        fileName: plan.sourceFileName,
+      }) || plan.sourceFileUrl,
+    sourceFilePublicId: plan.sourceFilePublicId,
+    sourceFileName: plan.sourceFileName,
     medicines: plan.medicines,
     agentTrace: plan.agentTrace,
     adherence,
@@ -50,11 +59,18 @@ exports.createPlanFromPrescription = async (req, res) => {
       return res.status(400).json({ message: "patientId is required" });
     }
 
-    if (!req.file) {
+    if (!req.file?.buffer) {
       return res.status(400).json({ message: "Prescription image is required" });
     }
 
-    const rawText = await extractText(req.file.path);
+    const uploadedFile = await uploadBuffer(req.file.buffer, {
+      folder: `${process.env.CLOUDINARY_FOLDER || "meditap"}/prescriptions`,
+      public_id: req.file.originalname
+        ? req.file.originalname.replace(/\.[^/.]+$/, "")
+        : undefined,
+    });
+
+    const rawText = await extractText(req.file.buffer);
     const cleanedText = cleanOCRText(rawText);
     const structuredMedicines = await extractStructuredMedicines(cleanedText);
     const medicines = buildDoseTimeline(structuredMedicines);
@@ -64,6 +80,11 @@ exports.createPlanFromPrescription = async (req, res) => {
       createdBy: req.user?._id,
       prescriptionText: cleanedText,
       source: "ocr",
+      sourceFileUrl: uploadedFile.secure_url,
+      sourceFilePublicId: uploadedFile.public_id,
+      sourceFileName: req.file.originalname,
+      sourceFileResourceType: uploadedFile.resource_type,
+      sourceFileFormat: uploadedFile.format || req.file.originalname?.split(".").pop() || null,
       medicines,
       agentTrace: [
         {
@@ -89,8 +110,6 @@ exports.createPlanFromPrescription = async (req, res) => {
       ],
     });
 
-    fs.unlink(req.file.path, () => {});
-
     res.status(201).json({
       rawText,
       cleanedText,
@@ -99,7 +118,6 @@ exports.createPlanFromPrescription = async (req, res) => {
     });
   } catch (error) {
     console.error("Create medication plan error:", error);
-    if (req.file?.path) fs.unlink(req.file.path, () => {});
     res.status(500).json({ message: error.message });
   }
 };

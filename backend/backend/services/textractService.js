@@ -9,8 +9,8 @@ const client = new TextractClient({
   }
 });
 
-async function extractText(imagePath) {
-  const imageBytes = fs.readFileSync(imagePath);
+async function extractText(input) {
+  const imageBytes = Buffer.isBuffer(input) ? input : fs.readFileSync(input);
 
   const command = new DetectDocumentTextCommand({
     Document: {

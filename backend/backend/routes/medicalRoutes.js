@@ -9,8 +9,9 @@ const auth = require("../middleware/authMiddleware");
 const role = require("../middleware/roleMiddleware");
 const logAccess = require("../middleware/logMiddleware");
 const upload = require("../middleware/uploadMiddleware");
-const MedicalRecord = require("../models/MedicalRecord");
+const { buildSignedDownloadUrl, uploadBuffer } = require("../services/cloudinaryService");
 const path = require("path");
+const MedicalRecord = require("../models/MedicalRecord");
 
 
 
@@ -39,21 +40,39 @@ router.post(
   role("doctor"),
   upload.single("report"),
   async (req, res) => {
-    const { patientId } = req.params;
+    try {
+      const { patientId } = req.params;
 
-    if (!req.file) {
-      return res.status(400).json({ message: "No file uploaded" });
+      if (!req.file?.buffer) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      const uploadedFile = await uploadBuffer(req.file.buffer, {
+        folder: `${process.env.CLOUDINARY_FOLDER || "meditap"}/medical-reports`,
+        public_id: req.file.originalname
+          ? req.file.originalname.replace(/\.[^/.]+$/, "")
+          : undefined,
+      });
+
+      res.json({
+        message: "Report uploaded",
+        file: {
+          publicId: uploadedFile.public_id,
+          fileName: req.file.originalname,
+          mimeType: req.file.mimetype,
+          resourceType: uploadedFile.resource_type,
+          format: uploadedFile.format || req.file.originalname?.split(".").pop() || null,
+          accessUrl: buildSignedDownloadUrl({
+            publicId: uploadedFile.public_id,
+            resourceType: uploadedFile.resource_type,
+            format: uploadedFile.format || req.file.originalname?.split(".").pop() || null,
+            fileName: req.file.originalname,
+          }),
+        },
+      });
+    } catch (error) {
+      res.status(500).json({ message: error.message });
     }
-
-    const record = await MedicalRecord.create({
-      patient: patientId,
-      fileUrl: req.file.path,
-    });
-
-    res.json({
-      message: "Report uploaded",
-      record,
-    });
   }
 );
 
@@ -69,6 +88,25 @@ router.get(
 
       if (!record || !record.fileUrl) {
         return res.status(404).json({ message: "Report not found" });
+      }
+
+      if (record.filePublicId) {
+        const signedUrl = buildSignedDownloadUrl({
+          publicId: record.filePublicId,
+          resourceType: record.fileResourceType,
+          format: record.fileFormat,
+          fileName: record.fileName,
+        });
+
+        if (!signedUrl) {
+          return res.status(404).json({ message: "Signed file URL not available" });
+        }
+
+        return res.redirect(signedUrl);
+      }
+
+      if (/^https?:\/\//i.test(record.fileUrl)) {
+        return res.redirect(record.fileUrl);
       }
 
       const filePath = path.resolve(record.fileUrl);

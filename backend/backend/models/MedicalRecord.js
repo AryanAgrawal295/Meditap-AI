@@ -1,5 +1,17 @@
 const mongoose = require("mongoose");
 
+const attachmentSchema = new mongoose.Schema(
+  {
+    publicId: String,
+    fileName: String,
+    mimeType: String,
+    resourceType: String,
+    format: String,
+    url: String,
+  },
+  { _id: false }
+);
+
 const medicalRecordSchema = new mongoose.Schema(
   {
     patient: {
@@ -22,7 +34,7 @@ const medicalRecordSchema = new mongoose.Schema(
     hospital: String,
     department: String,
     description: String,
-    attachments: [String],
+    attachments: [attachmentSchema],
     recordType: {
       type: String,
       enum: ["consultation", "diagnosis", "lab-test", "surgery", "admission", "discharge", "emergency"],
@@ -42,7 +54,12 @@ const medicalRecordSchema = new mongoose.Schema(
 
     fileUrl: {
       type: String
-    }
+    },
+    filePublicId: String,
+    fileName: String,
+    fileMimeType: String,
+    fileResourceType: String,
+    fileFormat: String
 
   },
   { timestamps: true }
