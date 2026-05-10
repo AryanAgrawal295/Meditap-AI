@@ -3,6 +3,7 @@ const analyzeMedicalText = require("../services/textService");
 const { uploadBuffer } = require("../services/cloudinaryService");
 const {
   buildDoseTimeline,
+  extractRecordSuggestions,
   extractStructuredMedicines,
 } = require("../services/medicationAgentService");
 
@@ -71,6 +72,11 @@ exports.processPrescription = async (req, res) => {
     // Step 6: Agentic prescription structuring and medicine schedule preview
     const structuredMedicines = await extractStructuredMedicines(cleanedText);
     const medicineSchedule = buildDoseTimeline(structuredMedicines);
+    const recordSuggestions = await extractRecordSuggestions(cleanedText, {
+      conditions,
+      medications,
+      procedures,
+    });
 
     res.json({
       fileUrl: uploadedFile?.secure_url || null,
@@ -79,6 +85,7 @@ exports.processPrescription = async (req, res) => {
       conditions,
       medications,
       procedures,
+      recordSuggestions,
       structuredMedicines,
       medicineSchedule
     });

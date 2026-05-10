@@ -89,6 +89,33 @@ interface AppContextType {
     prescriptions?: string[];
   }) => Promise<void>;
   uploadMedicalReport: (file: File) => Promise<MedicalAttachment>;
+  processPrescriptionOCR: (file: File) => Promise<{
+    fileUrl?: string;
+    rawText: string;
+    cleanedText: string;
+    conditions: string[];
+    medications: string[];
+    procedures: string[];
+    recordSuggestions?: {
+      title?: string;
+      diagnosis?: string;
+      description?: string;
+      visitDate?: string;
+      doctorName?: string;
+      department?: string;
+      hospital?: string;
+    };
+    structuredMedicines: Array<{
+      name?: string;
+      dosage?: string;
+      timing?: string[];
+      duration?: string;
+      durationDays?: number;
+      frequency?: string;
+      frequencyPerDay?: number;
+      quantityPerDose?: number;
+    }>;
+  }>;
   uploadPrescriptionForSchedule: (file: File) => Promise<MedicationPlan>;
   verifyDoseWithAI: (payload: {
     planId: string;
@@ -528,6 +555,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return response.plan;
   }, [currentPatientId]);
 
+  const processPrescriptionOCR = useCallback(async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    return apiRequest<{
+      fileUrl?: string;
+      rawText: string;
+      cleanedText: string;
+      conditions: string[];
+      medications: string[];
+      procedures: string[];
+      recordSuggestions?: {
+        title?: string;
+        diagnosis?: string;
+        description?: string;
+        visitDate?: string;
+        doctorName?: string;
+        department?: string;
+        hospital?: string;
+      };
+      structuredMedicines: Array<{
+        name?: string;
+        dosage?: string;
+        timing?: string[];
+        duration?: string;
+        durationDays?: number;
+        frequency?: string;
+        frequencyPerDay?: number;
+        quantityPerDose?: number;
+      }>;
+    }>('/ocr/process', {
+      method: 'POST',
+      body: formData,
+    });
+  }, []);
+
   const verifyDoseWithAI = useCallback(async (payload: {
     planId: string;
     medicineId: string;
@@ -650,6 +713,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     verifyOtp,
     addMedicalRecord,
     uploadMedicalReport,
+    processPrescriptionOCR,
     uploadPrescriptionForSchedule,
     verifyDoseWithAI,
     updateDoseStatus,
@@ -680,6 +744,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updatePatientProfile,
     updateDoseStatus,
     uploadMedicalReport,
+    processPrescriptionOCR,
     uploadPrescriptionForSchedule,
     verifyDoseWithAI,
     verifyOtp,

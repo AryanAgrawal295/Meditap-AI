@@ -8,9 +8,7 @@ import {
   FileImage,
   HeartPulse,
   Pill,
-  RefreshCcw,
   ShieldCheck,
-  Upload,
   XCircle,
   ExternalLink,
 } from 'lucide-react';
@@ -119,42 +117,15 @@ function MedicineCard({ medicine }: { medicine: MedicationMedicine }) {
 export default function PrescriptionsPage() {
   const {
     medicationPlans,
-    role,
-    uploadPrescriptionForSchedule,
     verifyDoseWithAI,
     updateDoseStatus,
   } = useApp();
   const { toast } = useToast();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isUploading, setIsUploading] = useState(false);
   const [activeDose, setActiveDose] = useState<TimelineDose | null>(null);
 
-  const canUpload = role === 'doctor';
   const timeline = useMemo(() => flattenTimeline(medicationPlans), [medicationPlans]);
   const adherence = useMemo(() => getPlanAdherence(medicationPlans), [medicationPlans]);
   const refillAlerts = medicationPlans.flatMap((plan) => plan.refillAlerts);
-
-  const handleUpload = async (file?: File) => {
-    if (!file) return;
-
-    setIsUploading(true);
-    try {
-      await uploadPrescriptionForSchedule(file);
-      toast({
-        title: 'Prescription processed',
-        description: 'NFC Next Level generated the medicine schedule and adherence timeline.',
-      });
-    } catch (error) {
-      toast({
-        title: 'Upload failed',
-        description: error instanceof Error ? error.message : 'Could not process prescription.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
 
   const handleVerify = async (verified: boolean) => {
     if (!activeDose) return;
@@ -185,28 +156,9 @@ export default function PrescriptionsPage() {
             <p className="text-sm font-medium text-primary">NFC Next Level</p>
             <h1 className="font-display text-3xl lg:text-4xl text-foreground">Medication Adherence</h1>
             <p className="text-muted-foreground mt-1">
-              OCR prescriptions, AI schedules, reminder escalation, verification, and refill prediction.
+              Prescription schedules are created from the Add Medical Record flow, then tracked here with reminder escalation, verification, and refill prediction.
             </p>
           </div>
-          {canUpload && (
-            <div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-                className="hidden"
-                onChange={(event) => handleUpload(event.target.files?.[0])}
-              />
-              <Button
-                variant="medical"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploading}
-              >
-                {isUploading ? <RefreshCcw size={18} className="animate-spin" /> : <Upload size={18} />}
-                {isUploading ? 'Processing' : 'Upload Prescription'}
-              </Button>
-            </div>
-          )}
         </div>
 
         <div className="grid gap-4 md:grid-cols-4">
@@ -273,7 +225,7 @@ export default function PrescriptionsPage() {
                     <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">
                       Level {dose.reminderLevel || 1}
                     </span>
-                    {dose.status === 'pending' && canUpload && (
+                    {dose.status === 'pending' && (
                       <>
                         <Button variant="secondary" size="sm" onClick={() => setActiveDose(dose)}>
                           <Camera size={15} />
