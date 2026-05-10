@@ -40,6 +40,24 @@ function safeJsonParse(text) {
   return JSON.parse(match ? match[0] : trimmed);
 }
 
+function toISODate(value = "") {
+  const trimmed = String(value).trim();
+  if (!trimmed) return "";
+
+  const directDate = new Date(trimmed);
+  if (!Number.isNaN(directDate.getTime())) {
+    return directDate.toISOString().slice(0, 10);
+  }
+
+  const match = trimmed.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b/);
+  if (!match) return "";
+
+  const day = match[1].padStart(2, "0");
+  const month = match[2].padStart(2, "0");
+  const year = match[3].length === 2 ? `20${match[3]}` : match[3];
+  return `${year}-${month}-${day}`;
+}
+
 function inferDurationDays(value = "") {
   const text = value.toLowerCase();
   const number = Number((text.match(/\d+/) || [])[0]);
@@ -150,6 +168,86 @@ async function extractStructuredMedicines(rawText) {
   }
 }
 
+function fallbackExtractRecordSuggestions(rawText = "") {
+  const lines = rawText
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  const dateLine = lines.find((line) =>
+    /\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\b/.test(line) ||
+    /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i.test(line)
+  );
+  const doctorLine = lines.find((line) => /\b(dr\.?|doctor)\b/i.test(line));
+  const departmentLine = lines.find((line) =>
+    /\b(cardiology|neurology|orthopedic|orthopaedic|medicine|general medicine|ent|dermatology|pediatrics|paediatrics|surgery|icu|emergency)\b/i.test(line)
+  );
+  const hospitalLine = lines.find((line) =>
+    /\b(hospital|clinic|medical center|centre|nursing home)\b/i.test(line)
+  );
+
+  const descriptionLines = lines
+    .filter((line) => line.length >= 8)
+    .filter((line) => !/\b(tab|tablet|cap|capsule|mg|ml|dose|daily|bid|tid|qid)\b/i.test(line))
+    .slice(0, 3);
+
+  return {
+    title: "",
+    diagnosis: "",
+    description: descriptionLines.join(". "),
+    visitDate: dateLine ? toISODate(dateLine) : "",
+    doctorName: doctorLine || "",
+    department: departmentLine || "",
+    hospital: hospitalLine || "",
+  };
+}
+
+async function extractRecordSuggestions(rawText, context = {}) {
+  const fallback = fallbackExtractRecordSuggestions(rawText);
+
+  if (!selectedProvider.apiKey) {
+    return fallback;
+  }
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: selectedProvider.model,
+      temperature: 0.1,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "You extract structured medical-record suggestions from OCR text. Return JSON only with keys title, diagnosis, description, visitDate, doctorName, department, hospital. Rules: diagnosis must contain only diagnosis/condition text, never medicines, doses, procedures, or generic noise. description should be a short 1-2 sentence clinical summary. visitDate must be YYYY-MM-DD or empty. doctorName should contain only provider name. department should contain only department/specialty. hospital should contain only facility name. If a field is unclear, return an empty string.",
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            rawText,
+            detectedConditions: context.conditions || [],
+            detectedProcedures: context.procedures || [],
+            detectedMedicines: context.medications || [],
+          }),
+        },
+      ],
+    });
+
+    const parsed = safeJsonParse(response.choices[0].message.content || "{}");
+    return {
+      title: String(parsed.title || "").trim(),
+      diagnosis: String(parsed.diagnosis || "").trim(),
+      description: String(parsed.description || "").trim(),
+      visitDate: toISODate(parsed.visitDate || ""),
+      doctorName: String(parsed.doctorName || "").trim(),
+      department: String(parsed.department || "").trim(),
+      hospital: String(parsed.hospital || "").trim(),
+    };
+  } catch (error) {
+    console.error("Record suggestion extraction fallback:", error.message);
+    return fallback;
+  }
+}
+
 function buildDoseTimeline(medicines, startDate = new Date()) {
   return medicines.map((medicine) => {
     const durationDays = Number(medicine.durationDays) || inferDurationDays(medicine.duration);
@@ -238,6 +336,7 @@ function verifyIntakeEvidence({ pillDetected, gestureDetected, confidence = 0, n
 
 module.exports = {
   buildDoseTimeline,
+  extractRecordSuggestions,
   extractStructuredMedicines,
   getReminderLevel,
   summarizeAdherence,

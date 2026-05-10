@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Upload } from 'lucide-react';
+import { ArrowLeft, Save, Upload, ScanText, RefreshCcw } from 'lucide-react';
 import { DashboardLayout } from '@/layouts/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,11 +37,68 @@ const tagOptions: { value: ConditionTag; label: string }[] = [
   { value: 'lifestyle', label: 'Lifestyle-related' },
 ];
 
+const COMMON_MEDICINE_NOISE = [
+  'mg',
+  'ml',
+  'tab',
+  'tablet',
+  'cap',
+  'capsule',
+  'syrup',
+  'inj',
+  'injection',
+  'od',
+  'bd',
+  'tid',
+  'qid',
+];
+
+function normalizeOCRValue(value: string) {
+  return value
+    .replace(/\s+/g, ' ')
+    .replace(/[,:;]+$/g, '')
+    .trim();
+}
+
+function isLikelyDiagnosis(value: string) {
+  const normalized = normalizeOCRValue(value);
+
+  if (!normalized || normalized.length < 3 || normalized.length > 80) {
+    return false;
+  }
+
+  const lower = normalized.toLowerCase();
+
+  if (COMMON_MEDICINE_NOISE.some((token) => lower.includes(` ${token}`) || lower === token)) {
+    return false;
+  }
+
+  if (/\b\d+\s?(mg|ml|mcg|g|iu)\b/i.test(normalized)) {
+    return false;
+  }
+
+  if (/[+/]/.test(normalized)) {
+    return false;
+  }
+
+  return /[a-z]{2,}/i.test(normalized);
+}
+
+function uniqueNormalized(values: string[]) {
+  return [...new Set(values.map(normalizeOCRValue).filter(Boolean))];
+}
+
+function keepShortText(value?: string) {
+  const normalized = normalizeOCRValue(value || '');
+  return normalized.length > 160 ? normalized.slice(0, 160).trim() : normalized;
+}
+
 export default function AddMedicalRecordPage() {
   const navigate = useNavigate();
-  const { addMedicalRecord, uploadMedicalReport } = useApp();
+  const { addMedicalRecord, processPrescriptionOCR, uploadMedicalReport, uploadPrescriptionForSchedule } = useApp();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const prescriptionInputRef = useRef<HTMLInputElement | null>(null);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -57,6 +114,19 @@ export default function AddMedicalRecordPage() {
   });
 
   const [attachments, setAttachments] = useState<MedicalAttachment[]>([]);
+  const [prescriptions, setPrescriptions] = useState<string[]>([]);
+  const [ocrSummary, setOcrSummary] = useState<{
+    cleanedText: string;
+    conditions: string[];
+    medications: string[];
+    procedures: string[];
+    suggestedDate?: string;
+    suggestedDoctor?: string;
+    suggestedHospital?: string;
+  } | null>(null);
+  const [prescriptionFile, setPrescriptionFile] = useState<File | null>(null);
+  const [isScanningPrescription, setIsScanningPrescription] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -94,14 +164,22 @@ export default function AddMedicalRecordPage() {
       severity: formData.severity,
       tags: formData.tags,
       attachments: attachments.length > 0 ? attachments : undefined,
+      prescriptions: prescriptions.length > 0 ? prescriptions : undefined,
     };
 
     try {
+      setIsSaving(true);
       await addMedicalRecord(newRecord);
+
+      if (prescriptionFile) {
+        await uploadPrescriptionForSchedule(prescriptionFile);
+      }
 
       toast({
         title: "Record Added",
-        description: "Medical record has been successfully added.",
+        description: prescriptionFile
+          ? "Medical record and prescription schedule were created successfully."
+          : "Medical record has been successfully added.",
       });
 
       navigate('/medical-history');
@@ -111,6 +189,8 @@ export default function AddMedicalRecordPage() {
         description: error instanceof Error ? error.message : "Could not save the medical record.",
         variant: "destructive",
       });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -135,6 +215,88 @@ export default function AddMedicalRecordPage() {
         variant: "destructive",
       });
     } finally {
+      event.target.value = '';
+    }
+  };
+
+  const handlePrescriptionScan = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      setIsScanningPrescription(true);
+      const ocrResult = await processPrescriptionOCR(file);
+
+      const cleanedConditions = uniqueNormalized(ocrResult.conditions).filter(isLikelyDiagnosis);
+      const medicationNames = ocrResult.structuredMedicines
+        .map((medicine) => medicine.name?.trim())
+        .filter((name): name is string => Boolean(name))
+        .map(normalizeOCRValue)
+        .filter((name) => name.length >= 2);
+
+      const medicationsFromEntities = uniqueNormalized(ocrResult.medications);
+      const mergedPrescriptionNames = uniqueNormalized([...medicationNames, ...medicationsFromEntities]);
+      const cleanedProcedures = uniqueNormalized(ocrResult.procedures).filter((value) => value.length >= 2 && value.length <= 60);
+      const diagnosisText = keepShortText(ocrResult.recordSuggestions?.diagnosis) || cleanedConditions.join(', ');
+      const suggestedTitle = keepShortText(ocrResult.recordSuggestions?.title);
+      const suggestedDescription = keepShortText(ocrResult.recordSuggestions?.description);
+      const suggestedDate = ocrResult.recordSuggestions?.visitDate || '';
+      const suggestedDoctor = keepShortText(ocrResult.recordSuggestions?.doctorName);
+      const suggestedDepartment = keepShortText(ocrResult.recordSuggestions?.department);
+      const suggestedHospital = keepShortText(ocrResult.recordSuggestions?.hospital);
+
+      setPrescriptionFile(file);
+      setPrescriptions(mergedPrescriptionNames);
+      setOcrSummary({
+        cleanedText: ocrResult.cleanedText,
+        conditions: cleanedConditions,
+        medications: mergedPrescriptionNames,
+        procedures: cleanedProcedures,
+        suggestedDate,
+        suggestedDoctor,
+        suggestedHospital,
+      });
+
+      setFormData((prev) => ({
+        ...prev,
+        title:
+          prev.title ||
+          suggestedTitle ||
+          (cleanedConditions[0]
+            ? `${cleanedConditions[0]} Prescription`
+            : file.name.replace(/\.[^/.]+$/, '')),
+        date: prev.date || suggestedDate,
+        diagnosis: prev.diagnosis || diagnosisText,
+        doctor: prev.doctor || suggestedDoctor,
+        department: prev.department || suggestedDepartment,
+        hospital: prev.hospital || suggestedHospital,
+        description: prev.description || suggestedDescription,
+        recordType: prev.recordType || 'diagnosis',
+        tags:
+          prev.tags.length > 0
+            ? prev.tags
+            : cleanedConditions.length > 0
+              ? ['acute']
+              : prev.tags,
+      }));
+
+      toast({
+        title: "Prescription scanned",
+        description: diagnosisText
+          ? "OCR completed. Diagnosis was filled conservatively from detected conditions."
+          : "OCR completed. Review detected medicines and fill diagnosis manually if needed.",
+      });
+    } catch (error) {
+      toast({
+        title: "OCR Failed",
+        description: error instanceof Error ? error.message : "Could not extract data from the prescription.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsScanningPrescription(false);
       event.target.value = '';
     }
   };
@@ -207,6 +369,71 @@ export default function AddMedicalRecordPage() {
           <div className="medical-card">
             <h2 className="font-display text-lg text-foreground mb-4">Medical Details</h2>
             <div className="space-y-4">
+              <div className="rounded-lg border border-dashed border-border bg-secondary/30 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="font-medium text-foreground flex items-center gap-2">
+                      <ScanText size={16} className="text-primary" />
+                      Scan Prescription
+                    </h3>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Upload a PDF, JPG, JPEG, or PNG prescription to auto-fill this record and create the medication schedule when you save.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => prescriptionInputRef.current?.click()}
+                    disabled={isScanningPrescription}
+                  >
+                    {isScanningPrescription ? <RefreshCcw size={16} className="animate-spin" /> : <ScanText size={16} />}
+                    {isScanningPrescription ? 'Scanning...' : 'Upload Prescription'}
+                  </Button>
+                </div>
+                <input
+                  ref={prescriptionInputRef}
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                  className="hidden"
+                  onChange={handlePrescriptionScan}
+                />
+
+                {(prescriptionFile || ocrSummary) && (
+                  <div className="mt-4 space-y-2 text-sm">
+                    {prescriptionFile && (
+                      <p className="text-foreground">
+                        Selected file: <span className="text-muted-foreground">{prescriptionFile.name}</span>
+                      </p>
+                    )}
+                    {ocrSummary?.medications?.length ? (
+                      <p className="text-foreground">
+                        Medicines detected: <span className="text-muted-foreground">{ocrSummary.medications.join(', ')}</span>
+                      </p>
+                    ) : null}
+                    {ocrSummary?.conditions?.length ? (
+                      <p className="text-foreground">
+                        Conditions detected: <span className="text-muted-foreground">{ocrSummary.conditions.join(', ')}</span>
+                      </p>
+                    ) : null}
+                    {ocrSummary?.suggestedDate ? (
+                      <p className="text-foreground">
+                        Date detected: <span className="text-muted-foreground">{ocrSummary.suggestedDate}</span>
+                      </p>
+                    ) : null}
+                    {ocrSummary?.suggestedDoctor ? (
+                      <p className="text-foreground">
+                        Doctor detected: <span className="text-muted-foreground">{ocrSummary.suggestedDoctor}</span>
+                      </p>
+                    ) : null}
+                    {ocrSummary?.suggestedHospital ? (
+                      <p className="text-foreground">
+                        Hospital detected: <span className="text-muted-foreground">{ocrSummary.suggestedHospital}</span>
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Diagnosis *</label>
                 <Input
@@ -313,9 +540,9 @@ export default function AddMedicalRecordPage() {
             <Button type="button" variant="secondary" onClick={() => navigate('/medical-history')}>
               Cancel
             </Button>
-            <Button type="submit" variant="medical">
-              <Save size={16} />
-              Save Record
+            <Button type="submit" variant="medical" disabled={isSaving || isScanningPrescription}>
+              {isSaving ? <RefreshCcw size={16} className="animate-spin" /> : <Save size={16} />}
+              {isSaving ? 'Saving...' : 'Save Record'}
             </Button>
           </div>
         </div>
