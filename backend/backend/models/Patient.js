@@ -20,6 +20,14 @@ const patientSchema = new mongoose.Schema(
     phone: String,
     bloodGroup: String,
     photo: String,
+    uploaderPassword: {
+      type: String,
+      select: false,
+    },
+    viewerPassword: {
+      type: String,
+      select: false,
+    },
 
     // Emergency Quick Access Info
     allergies: [String],

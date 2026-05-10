@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const {
   createPatient,
+  registerPatient,
   getPatientByNfc,
   getPatientById,
   resolvePatient,
@@ -13,6 +14,9 @@ const role = require("../middleware/roleMiddleware");
 
 // Only receptionist or doctor can create patient
 router.post("/", auth, role("doctor", "receptionist"), createPatient);
+
+// Public patient registration for continuing without NFC
+router.post("/register", registerPatient);
 
 // NFC Quick Access
 router.get("/nfc/:nfcId", auth, getPatientByNfc);

@@ -55,7 +55,24 @@ interface AppContextType {
   setRole: (role: UserRole | null) => void;
   setPatientContext: (patientId: string | null) => Promise<void>;
   resolvePatientContext: (identifier: string) => Promise<{ patientId: string; fullName: string; email?: string | null }>;
+  registerPatient: (payload: {
+    fullName: string;
+    email: string;
+    phone: string;
+    dateOfBirth: string;
+    gender: string;
+    bloodGroup: string;
+    allergies: string;
+    emergencyContact: {
+      name: string;
+      phone: string;
+      relation: string;
+    };
+    uploaderPassword: string;
+    viewerPassword: string;
+  }) => Promise<void>;
   loginWithPassword: (email: string, password: string) => Promise<void>;
+  loginWithPatientPassword: (password: string) => Promise<UserRole>;
   requestOtp: (email: string) => Promise<void>;
   verifyOtp: (email: string, otp: string) => Promise<void>;
   addMedicalRecord: (record: {
@@ -209,6 +226,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       patientId: string;
       fullName: string;
       email?: string | null;
+      [key: string]: unknown;
     }>('/patients/resolve', {
       method: 'POST',
       body: {
@@ -219,8 +237,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     setCurrentPatientId(response.patientId);
     setStoredPatientId(response.patientId);
+    setPatient(mapBackendPatient(response));
 
     return response;
+  }, []);
+
+  const registerPatient = useCallback(async (payload: {
+    fullName: string;
+    email: string;
+    phone: string;
+    dateOfBirth: string;
+    gender: string;
+    bloodGroup: string;
+    allergies: string;
+    emergencyContact: {
+      name: string;
+      phone: string;
+      relation: string;
+    };
+    uploaderPassword: string;
+    viewerPassword: string;
+  }) => {
+    const response = await apiRequest<{
+      patientId: string;
+      patient?: Record<string, unknown>;
+      fullName: string;
+      email?: string | null;
+    }>('/patients/register', {
+      method: 'POST',
+      body: payload,
+    });
+
+    setCurrentPatientId(response.patientId);
+    setStoredPatientId(response.patientId);
+    setPatient(mapBackendPatient(response.patient || response));
   }, []);
 
   useEffect(() => {
@@ -323,6 +373,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       user: response.user,
     });
   }, [completeAuthentication]);
+
+  const loginWithPatientPassword = useCallback(async (password: string) => {
+    if (!currentPatientId) {
+      throw new Error('No patient selected');
+    }
+
+    const response = await apiRequest<{
+      accessToken: string;
+      refreshToken: string;
+      role: UserRole;
+      user: AuthUser;
+    }>('/auth/patient-access', {
+      method: 'POST',
+      body: {
+        patientId: currentPatientId,
+        password,
+      },
+    });
+
+    await completeAuthentication({
+      accessToken: response.accessToken,
+      refreshToken: response.refreshToken,
+      resolvedRole: response.role,
+      user: response.user,
+    });
+
+    return response.role;
+  }, [completeAuthentication, currentPatientId]);
 
   const requestOtp = useCallback(async (email: string) => {
     await apiRequest('/auth/send-otp', {
@@ -565,7 +643,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRole,
     setPatientContext,
     resolvePatientContext,
+    registerPatient,
     loginWithPassword,
+    loginWithPatientPassword,
     requestOtp,
     verifyOtp,
     addMedicalRecord,
@@ -585,11 +665,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isInitializing,
     isLoadingPatient,
     loginWithPassword,
+    loginWithPatientPassword,
     logout,
     medicalRecords,
     medicationPlans,
     patient,
     prescriptions,
+    registerPatient,
     requestOtp,
     role,
     resolvePatientContext,

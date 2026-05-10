@@ -8,7 +8,7 @@ const medicationController = require("../controllers/medicationController");
 router.post(
   "/prescription",
   auth,
-  role("doctor", "receptionist"),
+  role("doctor"),
   upload.single("file"),
   medicationController.createPlanFromPrescription
 );
@@ -30,14 +30,14 @@ router.get(
 router.post(
   "/:planId/medicines/:medicineId/doses/:doseId/verify",
   auth,
-  role("doctor", "receptionist"),
+  role("doctor"),
   medicationController.verifyDose
 );
 
 router.patch(
   "/:planId/medicines/:medicineId/doses/:doseId/status",
   auth,
-  role("doctor", "receptionist"),
+  role("doctor"),
   medicationController.updateDoseStatus
 );
 

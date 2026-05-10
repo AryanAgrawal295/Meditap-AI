@@ -1,4 +1,5 @@
 const User = require("../models/User");
+const Patient = require("../models/Patient");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
@@ -63,6 +64,65 @@ exports.login = async (req, res) => {
       role: user.role,
     },
   });
+};
+
+function signPatientTokens(patient, role) {
+  const tokenPayload = {
+    id: patient._id,
+    patientId: patient._id,
+    role,
+    sessionType: "patient",
+  };
+
+  return {
+    accessToken: jwt.sign(tokenPayload, process.env.JWT_SECRET, { expiresIn: "15m" }),
+    refreshToken: jwt.sign(tokenPayload, process.env.JWT_SECRET, { expiresIn: "7d" }),
+  };
+}
+
+exports.loginPatientAccess = async (req, res) => {
+  try {
+    const { patientId, password } = req.body;
+
+    if (!patientId || !password) {
+      return res.status(400).json({ message: "Patient and password are required" });
+    }
+
+    const patient = await Patient.findById(patientId).select("+uploaderPassword +viewerPassword");
+
+    if (!patient) {
+      return res.status(404).json({ message: "Patient not found" });
+    }
+
+    const isUploader = patient.uploaderPassword
+      ? await bcrypt.compare(String(password), patient.uploaderPassword)
+      : false;
+    const isViewer = patient.viewerPassword
+      ? await bcrypt.compare(String(password), patient.viewerPassword)
+      : false;
+
+    if (!isUploader && !isViewer) {
+      return res.status(400).json({ message: "Invalid patient access password" });
+    }
+
+    const role = isUploader ? "doctor" : "receptionist";
+    const { accessToken, refreshToken } = signPatientTokens(patient, role);
+
+    res.json({
+      accessToken,
+      refreshToken,
+      role,
+      user: {
+        id: patient._id,
+        name: patient.fullName,
+        email: patient.email || "",
+        role,
+        patientId: patient._id,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
 exports.sendOtp = async (req, res) => {
@@ -159,14 +219,35 @@ exports.refreshToken = async (req, res) => {
     return res.status(401).json({ message: "Refresh token required" });
   }
 
-  const user = await User.findOne({ refreshToken });
-  if (!user) {
-    return res.status(403).json({ message: "Invalid refresh token" });
-  }
-
-  jwt.verify(refreshToken, process.env.JWT_SECRET, (err) => {
+  jwt.verify(refreshToken, process.env.JWT_SECRET, async (err, decoded) => {
     if (err) {
       return res.status(403).json({ message: "Expired refresh token" });
+    }
+
+    if (decoded.sessionType === "patient") {
+      const patient = await Patient.findById(decoded.patientId || decoded.id);
+
+      if (!patient) {
+        return res.status(403).json({ message: "Invalid refresh token" });
+      }
+
+      const newAccessToken = jwt.sign(
+        {
+          id: patient._id,
+          patientId: patient._id,
+          role: decoded.role,
+          sessionType: "patient",
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: "15m" }
+      );
+
+      return res.json({ accessToken: newAccessToken });
+    }
+
+    const user = await User.findOne({ refreshToken });
+    if (!user) {
+      return res.status(403).json({ message: "Invalid refresh token" });
     }
 
     const newAccessToken = jwt.sign(

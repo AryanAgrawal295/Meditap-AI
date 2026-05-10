@@ -51,6 +51,10 @@ function toClientPlan(plan) {
   };
 }
 
+function canAccessPatient(req, patientId) {
+  return !req.user?.isPatientSession || String(req.user.patientId) === String(patientId);
+}
+
 exports.createPlanFromPrescription = async (req, res) => {
   try {
     const { patientId } = req.body;
@@ -59,16 +63,26 @@ exports.createPlanFromPrescription = async (req, res) => {
       return res.status(400).json({ message: "patientId is required" });
     }
 
+    if (!canAccessPatient(req, patientId)) {
+      return res.status(403).json({ message: "Access denied for this patient" });
+    }
+
     if (!req.file?.buffer) {
       return res.status(400).json({ message: "Prescription image is required" });
     }
 
-    const uploadedFile = await uploadBuffer(req.file.buffer, {
-      folder: `${process.env.CLOUDINARY_FOLDER || "meditap"}/prescriptions`,
-      public_id: req.file.originalname
-        ? req.file.originalname.replace(/\.[^/.]+$/, "")
-        : undefined,
-    });
+    let uploadedFile = null;
+
+    try {
+      uploadedFile = await uploadBuffer(req.file.buffer, {
+        folder: `${process.env.CLOUDINARY_FOLDER || "meditap"}/prescriptions`,
+        public_id: req.file.originalname
+          ? req.file.originalname.replace(/\.[^/.]+$/, "")
+          : undefined,
+      });
+    } catch (uploadError) {
+      console.warn("Prescription file storage skipped:", uploadError.message);
+    }
 
     const rawText = await extractText(req.file.buffer);
     const cleanedText = cleanOCRText(rawText);
@@ -80,11 +94,11 @@ exports.createPlanFromPrescription = async (req, res) => {
       createdBy: req.user?._id,
       prescriptionText: cleanedText,
       source: "ocr",
-      sourceFileUrl: uploadedFile.secure_url,
-      sourceFilePublicId: uploadedFile.public_id,
+      sourceFileUrl: uploadedFile?.secure_url || null,
+      sourceFilePublicId: uploadedFile?.public_id || null,
       sourceFileName: req.file.originalname,
-      sourceFileResourceType: uploadedFile.resource_type,
-      sourceFileFormat: uploadedFile.format || req.file.originalname?.split(".").pop() || null,
+      sourceFileResourceType: uploadedFile?.resource_type || null,
+      sourceFileFormat: uploadedFile?.format || req.file.originalname?.split(".").pop() || null,
       medicines,
       agentTrace: [
         {
@@ -124,6 +138,10 @@ exports.createPlanFromPrescription = async (req, res) => {
 
 exports.getPatientPlans = async (req, res) => {
   try {
+    if (!canAccessPatient(req, req.params.patientId)) {
+      return res.status(403).json({ message: "Access denied for this patient" });
+    }
+
     const plans = await MedicationPlan.find({ patient: req.params.patientId }).sort({ createdAt: -1 });
     res.json(plans.map(toClientPlan));
   } catch (error) {
@@ -133,6 +151,10 @@ exports.getPatientPlans = async (req, res) => {
 
 exports.getReminderQueue = async (req, res) => {
   try {
+    if (!canAccessPatient(req, req.params.patientId)) {
+      return res.status(403).json({ message: "Access denied for this patient" });
+    }
+
     const plans = await MedicationPlan.find({ patient: req.params.patientId }).sort({ createdAt: -1 });
     const reminders = plans.flatMap((plan) =>
       plan.medicines.flatMap((medicine) =>
@@ -165,6 +187,10 @@ exports.verifyDose = async (req, res) => {
 
     if (!plan) {
       return res.status(404).json({ message: "Medication plan not found" });
+    }
+
+    if (!canAccessPatient(req, plan.patient)) {
+      return res.status(403).json({ message: "Access denied for this patient" });
     }
 
     const medicine = plan.medicines.id(medicineId);
@@ -205,6 +231,10 @@ exports.updateDoseStatus = async (req, res) => {
 
     if (!plan) {
       return res.status(404).json({ message: "Medication plan not found" });
+    }
+
+    if (!canAccessPatient(req, plan.patient)) {
+      return res.status(403).json({ message: "Access denied for this patient" });
     }
 
     const medicine = plan.medicines.id(medicineId);

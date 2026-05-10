@@ -26,6 +26,9 @@ exports.handleTap = async (req, res) => {
     res.json({
       patientId: patient._id,
       name: patient.fullName,
+      fullName: patient.fullName,
+      email: patient.email || null,
+      phone: patient.phone || null,
       age,
       gender: patient.gender,
       bloodGroup: patient.bloodGroup,

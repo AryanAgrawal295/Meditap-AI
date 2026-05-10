@@ -129,7 +129,7 @@ export default function PrescriptionsPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [activeDose, setActiveDose] = useState<TimelineDose | null>(null);
 
-  const canUpload = role === 'doctor' || role === 'receptionist';
+  const canUpload = role === 'doctor';
   const timeline = useMemo(() => flattenTimeline(medicationPlans), [medicationPlans]);
   const adherence = useMemo(() => getPlanAdherence(medicationPlans), [medicationPlans]);
   const refillAlerts = medicationPlans.flatMap((plan) => plan.refillAlerts);

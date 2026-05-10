@@ -3,6 +3,7 @@ export interface Patient {
   name: string;
   age: number;
   bloodGroup: string;
+  phone?: string;
   allergies: string[];
   emergencyContact: {
     name: string;
