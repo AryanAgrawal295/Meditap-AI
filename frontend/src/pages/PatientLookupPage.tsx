@@ -21,7 +21,7 @@ export default function PatientLookupPage() {
       setIsLoading(true);
       const patient = await resolvePatientContext(identifier.trim());
       toast.success(`Patient selected: ${patient.fullName}`);
-      navigate('/role-selection');
+      navigate('/');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to find patient');
     } finally {
@@ -44,7 +44,7 @@ export default function PatientLookupPage() {
           <div>
             <h1 className="text-3xl lg:text-4xl font-display text-foreground">Find Patient</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Continue without NFC by selecting the patient first
+              Load an existing patient before entering the access password
             </p>
           </div>
         </div>
@@ -79,7 +79,7 @@ export default function PatientLookupPage() {
             className="group"
           >
             <User size={18} />
-            {isLoading ? 'Finding Patient...' : 'Continue to Role Selection'}
+            {isLoading ? 'Finding Patient...' : 'Load Patient'}
             <ChevronRight size={18} className="ml-auto group-hover:translate-x-1 transition-transform" />
           </Button>
         </div>

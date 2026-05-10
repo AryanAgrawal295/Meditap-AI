@@ -36,8 +36,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   if (isInitializing || !isAuthenticated) return null;
 
   const roleLabels = {
-    doctor: 'Doctor',
-    receptionist: 'Receptionist',
+    doctor: 'Uploader',
+    receptionist: 'Viewer',
     emergency: 'Emergency Staff',
   };
 

@@ -53,6 +53,10 @@ function serializeMedicalRecord(record) {
 // Add Visit Record
 exports.addMedicalRecord = async (req, res) => {
   try {
+    if (req.user.isPatientSession && String(req.user.patientId) !== String(req.body.patient)) {
+      return res.status(403).json({ message: "Access denied for this patient" });
+    }
+
     const record = await MedicalRecord.create({
       ...req.body,
       doctor: req.user._id,
@@ -69,6 +73,10 @@ exports.addMedicalRecord = async (req, res) => {
 // Get Timeline
 exports.getPatientTimeline = async (req, res) => {
   try {
+    if (req.user.isPatientSession && String(req.user.patientId) !== String(req.params.patientId)) {
+      return res.status(403).json({ message: "Access denied for this patient" });
+    }
+
     const records = await MedicalRecord.find({
       patient: req.params.patientId,
     })

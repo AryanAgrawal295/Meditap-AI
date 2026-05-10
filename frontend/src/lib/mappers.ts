@@ -8,6 +8,7 @@ type BackendPatient = {
   dateOfBirth?: string | null;
   gender?: string | null;
   bloodGroup?: string | null;
+  phone?: string | null;
   allergies?: string[] | null;
   chronicDiseases?: string[] | null;
   currentMedications?: string[] | null;
@@ -78,6 +79,7 @@ export function mapBackendPatient(patient: BackendPatient): Patient {
     name: patient.fullName || patient.name || 'Unknown Patient',
     age: calculateAge(dateOfBirth, patient.age),
     bloodGroup: patient.bloodGroup || 'Unknown',
+    phone: patient.phone || undefined,
     allergies: patient.allergies || [],
     emergencyContact: {
       name: patient.emergencyContact?.name || 'Not available',

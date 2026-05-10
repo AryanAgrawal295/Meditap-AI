@@ -23,12 +23,18 @@ exports.processPrescription = async (req, res) => {
       });
     }
 
-    const uploadedFile = await uploadBuffer(req.file.buffer, {
-      folder: `${process.env.CLOUDINARY_FOLDER || "meditap"}/ocr-inputs`,
-      public_id: req.file.originalname
-        ? req.file.originalname.replace(/\.[^/.]+$/, "")
-        : undefined,
-    });
+    let uploadedFile = null;
+
+    try {
+      uploadedFile = await uploadBuffer(req.file.buffer, {
+        folder: `${process.env.CLOUDINARY_FOLDER || "meditap"}/ocr-inputs`,
+        public_id: req.file.originalname
+          ? req.file.originalname.replace(/\.[^/.]+$/, "")
+          : undefined,
+      });
+    } catch (uploadError) {
+      console.warn("OCR file storage skipped:", uploadError.message);
+    }
 
     // Step 1: OCR
     const rawText = await extractText(req.file.buffer);
@@ -73,7 +79,7 @@ exports.processPrescription = async (req, res) => {
     });
 
     res.json({
-      fileUrl: uploadedFile.secure_url,
+      fileUrl: uploadedFile?.secure_url || null,
       rawText,
       cleanedText,
       conditions,

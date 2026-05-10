@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Droplets, AlertTriangle, Phone, User, ChevronRight, LoaderCircle } from 'lucide-react';
+import { Shield, Droplets, AlertTriangle, Phone, User, ChevronRight, LoaderCircle, KeyRound, Eye, EyeOff, UserPlus } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { PatientAvatar } from '@/components/PatientAvatar';
 import { InfoCard } from '@/components/InfoCard';
@@ -7,7 +9,28 @@ import { useApp } from '@/contexts/AppContext';
 
 export default function BasicInfoPage() {
   const navigate = useNavigate();
-  const { patient, isInitializing, isLoadingPatient } = useApp();
+  const { patient, isInitializing, isLoadingPatient, loginWithPatientPassword } = useApp();
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+
+  const handlePatientPassword = async () => {
+    if (!password.trim()) {
+      toast.error('Enter the uploader or viewer password');
+      return;
+    }
+
+    try {
+      setIsAuthenticating(true);
+      const role = await loginWithPatientPassword(password);
+      toast.success(role === 'doctor' ? 'Uploader access granted' : 'Viewer access granted');
+      navigate('/dashboard');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Authentication failed');
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
 
   if (isInitializing || isLoadingPatient) {
     return (
@@ -24,24 +47,35 @@ export default function BasicInfoPage() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="w-full max-w-lg medical-card text-center">
-          <h1 className="text-2xl font-display text-foreground mb-3">No patient loaded</h1>
+          <h1 className="text-2xl font-display text-foreground mb-3">Start Patient Access</h1>
           <p className="text-muted-foreground mb-6">
-            NFC quick access is optional during local testing. You can continue with the normal login flow and load patient data later.
+            Register a new patient, find an old patient, or tap an NFC card to load the limited patient information first.
           </p>
           <div className="space-y-3">
             <Button
               variant="medical"
               size="full"
+              onClick={() => navigate('/register-patient')}
+              className="group"
+            >
+              <UserPlus size={18} />
+              New Patient Registration
+              <ChevronRight size={18} className="ml-auto group-hover:translate-x-1 transition-transform" />
+            </Button>
+
+            <Button
+              variant="outline"
+              size="full"
               onClick={() => navigate('/patient-lookup')}
               className="group"
             >
               <User size={18} />
-              Continue Without NFC
+              Old Patient Lookup
               <ChevronRight size={18} className="ml-auto group-hover:translate-x-1 transition-transform" />
             </Button>
 
             <p className="text-xs text-muted-foreground">
-              You can still use `?cardUID=...` later if you want to test the NFC entry flow.
+              NFC links can open this page with `?cardUID=...`.
             </p>
           </div>
         </div>
@@ -71,6 +105,12 @@ export default function BasicInfoPage() {
           </div>
 
           <div className="space-y-3">
+            <InfoCard
+              icon={<User size={18} />}
+              label="Mobile Number"
+              value={patient.phone || 'Not available'}
+            />
+
             <InfoCard
               icon={<Droplets size={18} />}
               label="Blood Group"
@@ -114,27 +154,50 @@ export default function BasicInfoPage() {
           </div>
         </div>
 
-        {/* Emergency Indicator */}
-        <div className="flex items-center gap-3 p-4 rounded-xl bg-destructive/5 border border-destructive/20 mb-6 animate-slide-up" style={{ animationDelay: '0.2s' }}>
-          <div className="w-3 h-3 rounded-full bg-destructive animate-pulse" />
-          <p className="text-sm text-destructive font-medium">Emergency services notified if emergency access is triggered</p>
-        </div>
+        <div className="medical-card space-y-4 animate-slide-up" style={{ animationDelay: '0.2s' }}>
+          <div>
+            <h3 className="font-display text-lg text-foreground">Enter Access Password</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              Uploader and viewer passwords open the same dashboard with the correct permissions.
+            </p>
+          </div>
 
-        {/* Actions */}
-        <div className="space-y-3 animate-slide-up" style={{ animationDelay: '0.3s' }}>
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  handlePatientPassword();
+                }
+              }}
+              placeholder="Uploader or viewer password"
+              className="input-medical pr-12 text-lg"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+            </button>
+          </div>
+
           <Button
             variant="medical"
             size="full"
-            onClick={() => navigate('/role-selection')}
+            onClick={handlePatientPassword}
+            disabled={isAuthenticating}
             className="group"
           >
-            <User size={18} />
-            Select Access Role
+            {isAuthenticating ? <LoaderCircle size={18} className="animate-spin" /> : <KeyRound size={18} />}
+            {isAuthenticating ? 'Verifying...' : 'Open Dashboard'}
             <ChevronRight size={18} className="ml-auto group-hover:translate-x-1 transition-transform" />
           </Button>
 
           <p className="text-center text-xs text-muted-foreground">
-            Medical professionals must authenticate to access full records
+            Uploader can add records. Viewer gets read-only access.
           </p>
         </div>
       </div>

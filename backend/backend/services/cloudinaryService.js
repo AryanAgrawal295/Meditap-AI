@@ -1,13 +1,25 @@
-const { v2: cloudinary } = require("cloudinary");
+let cloudinary = null;
 
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-  secure: true,
-});
+try {
+  cloudinary = require("cloudinary").v2;
+} catch (error) {
+  cloudinary = null;
+}
+
+if (cloudinary) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true,
+  });
+}
 
 function ensureCloudinaryConfig() {
+  if (!cloudinary) {
+    throw new Error("Cloudinary package is not installed. Run npm install in the backend folder or continue without file cloud storage.");
+  }
+
   if (
     !process.env.CLOUDINARY_CLOUD_NAME ||
     !process.env.CLOUDINARY_API_KEY ||
@@ -54,6 +66,10 @@ function buildSignedDownloadUrl({
   expiresInSeconds = 60 * 60,
   fileName,
 }) {
+  if (!cloudinary) {
+    return null;
+  }
+
   ensureCloudinaryConfig();
 
   if (!publicId) {

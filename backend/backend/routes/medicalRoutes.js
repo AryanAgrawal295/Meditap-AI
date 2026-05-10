@@ -43,6 +43,10 @@ router.post(
     try {
       const { patientId } = req.params;
 
+      if (req.user.isPatientSession && String(req.user.patientId) !== String(patientId)) {
+        return res.status(403).json({ message: "Access denied for this patient" });
+      }
+
       if (!req.file?.buffer) {
         return res.status(400).json({ message: "No file uploaded" });
       }
@@ -88,6 +92,10 @@ router.get(
 
       if (!record || !record.fileUrl) {
         return res.status(404).json({ message: "Report not found" });
+      }
+
+      if (req.user.isPatientSession && String(req.user.patientId) !== String(record.patient)) {
+        return res.status(403).json({ message: "Access denied for this patient" });
       }
 
       if (record.filePublicId) {
