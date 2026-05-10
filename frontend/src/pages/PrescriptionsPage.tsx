@@ -19,6 +19,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useApp } from '@/contexts/AppContext';
 import { MedicationDose, MedicationMedicine, MedicationPlan } from '@/types/patient';
 import { cn } from '@/lib/utils';
+import PillDetector from '@/components/PillDetector';
 
 type TimelineDose = MedicationDose & {
   planId: string;
@@ -312,7 +313,7 @@ export default function PrescriptionsPage() {
               <div>
                 <h2 className="font-display text-xl text-foreground">AI Intake Verification</h2>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Camera-based pill detection and intake gesture check for {activeDose.medicineName}.
+                  Camera-based pill detection for {activeDose.medicineName}.
                 </p>
               </div>
               <Button variant="ghost" size="icon" onClick={() => setActiveDose(null)}>
@@ -320,19 +321,15 @@ export default function PrescriptionsPage() {
               </Button>
             </div>
 
-            <div className="my-5 aspect-video rounded-lg border border-dashed border-border bg-secondary/70 flex items-center justify-center">
-              <Camera className="text-primary" size={42} />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Button variant="medical" onClick={() => handleVerify(true)}>
-                <CheckCircle2 size={18} />
-                Verified
-              </Button>
-              <Button variant="secondary" onClick={() => handleVerify(false)}>
-                <Bell size={18} />
-                Escalate
-              </Button>
+            <div className="mt-4">
+              <PillDetector
+                medicineId={activeDose.medicineId}
+                scheduledTime={activeDose.scheduledAt}
+                onIntakeConfirmed={() => {
+                  void handleVerify(true);
+                }}
+                onCancel={() => setActiveDose(null)}
+              />
             </div>
           </div>
         </div>
