@@ -26,6 +26,8 @@ const openai = new OpenAI({
   apiKey: selectedProvider.apiKey,
   baseURL: selectedProvider.baseURL,
 });
+let providerRateLimitedUntil = 0;
+const RATE_LIMIT_COOLDOWN_MS = Number(process.env.AI_RATE_LIMIT_COOLDOWN_MS) || 60000;
 
 const DEFAULT_TIMES = {
   morning: "08:00",
@@ -38,6 +40,37 @@ function safeJsonParse(text) {
   const trimmed = text.trim();
   const match = trimmed.match(/\{[\s\S]*\}/);
   return JSON.parse(match ? match[0] : trimmed);
+}
+
+function getProviderErrorStatus(error) {
+  return error?.status || error?.response?.status || error?.error?.status || null;
+}
+
+function getProviderErrorMessage(error) {
+  return (
+    error?.error?.message ||
+    error?.response?.data?.error?.message ||
+    error?.message ||
+    "Unknown AI provider error"
+  );
+}
+
+function isProviderRateLimited() {
+  return providerRateLimitedUntil > Date.now();
+}
+
+function rememberProviderRateLimit(error) {
+  const status = getProviderErrorStatus(error);
+
+  if (status !== 429) return false;
+
+  providerRateLimitedUntil = Date.now() + RATE_LIMIT_COOLDOWN_MS;
+  console.warn(
+    `AI OCR provider rate limited (${aiProvider}/${selectedProvider.model}); using local fallback for ${Math.round(
+      RATE_LIMIT_COOLDOWN_MS / 1000
+    )}s.`
+  );
+  return true;
 }
 
 function toISODate(value = "") {
@@ -139,7 +172,7 @@ function fallbackExtractMedicines(text) {
 }
 
 async function extractStructuredMedicines(rawText) {
-  if (!selectedProvider.apiKey) {
+  if (!selectedProvider.apiKey || isProviderRateLimited()) {
     return fallbackExtractMedicines(rawText);
   }
 
@@ -163,7 +196,9 @@ async function extractStructuredMedicines(rawText) {
       ? parsed.medicines
       : fallbackExtractMedicines(rawText);
   } catch (error) {
-    console.error("Medication OCR agent fallback:", error.message);
+    if (!rememberProviderRateLimit(error)) {
+      console.error("Medication OCR agent fallback:", getProviderErrorMessage(error));
+    }
     return fallbackExtractMedicines(rawText);
   }
 }
@@ -205,7 +240,7 @@ function fallbackExtractRecordSuggestions(rawText = "") {
 async function extractRecordSuggestions(rawText, context = {}) {
   const fallback = fallbackExtractRecordSuggestions(rawText);
 
-  if (!selectedProvider.apiKey) {
+  if (!selectedProvider.apiKey || isProviderRateLimited()) {
     return fallback;
   }
 
@@ -243,7 +278,9 @@ async function extractRecordSuggestions(rawText, context = {}) {
       hospital: String(parsed.hospital || "").trim(),
     };
   } catch (error) {
-    console.error("Record suggestion extraction fallback:", error.message);
+    if (!rememberProviderRateLimit(error)) {
+      console.error("Record suggestion extraction fallback:", getProviderErrorMessage(error));
+    }
     return fallback;
   }
 }
