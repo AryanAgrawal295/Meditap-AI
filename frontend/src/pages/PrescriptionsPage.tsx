@@ -8,6 +8,7 @@ import {
   FileImage,
   HeartPulse,
   Pill,
+  RefreshCcw,
   ShieldCheck,
   XCircle,
   ExternalLink,
