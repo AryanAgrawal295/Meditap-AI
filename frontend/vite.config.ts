@@ -18,4 +18,7 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  optimizeDeps: {
+    exclude: ["@mediapipe/hands", "@mediapipe/camera_utils", "@mediapipe/drawing_utils"],
+  },
 }));

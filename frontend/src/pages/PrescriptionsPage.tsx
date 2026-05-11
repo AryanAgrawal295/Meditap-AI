@@ -8,19 +8,19 @@ import {
   FileImage,
   HeartPulse,
   Pill,
-  RefreshCcw,
   ShieldCheck,
   XCircle,
   ExternalLink,
+  RefreshCcw,
 } from 'lucide-react';
 import { DashboardLayout } from '@/layouts/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import PillDetector from '@/components/PillDetector';
 import { useToast } from '@/hooks/use-toast';
 import { useApp } from '@/contexts/AppContext';
 import { MedicationDose, MedicationMedicine, MedicationPlan } from '@/types/patient';
 import { cn } from '@/lib/utils';
+import PillDetector from '@/components/PillDetector';
 
 type TimelineDose = MedicationDose & {
   planId: string;
@@ -314,7 +314,7 @@ export default function PrescriptionsPage() {
               <div>
                 <h2 className="font-display text-xl text-foreground">AI Intake Verification</h2>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Camera-based pill detection and intake gesture check for {activeDose.medicineName}.
+                  Camera-based pill detection for {activeDose.medicineName}.
                 </p>
               </div>
               <Button variant="ghost" size="icon" onClick={() => setActiveDose(null)}>
