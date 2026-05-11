@@ -21,7 +21,7 @@ export default function PatientLookupPage() {
       setIsLoading(true);
       const patient = await resolvePatientContext(identifier.trim());
       toast.success(`Patient selected: ${patient.fullName}`);
-      navigate('/');
+      navigate('/patient-access');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to find patient');
     } finally {

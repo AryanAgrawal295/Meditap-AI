@@ -19,7 +19,7 @@ interface PillDetectorProps {
 }
 
 type Phase = "idle" | "detecting" | "holding" | "confirmed" | "error";
-type IntakeStep = "detectPillInHand" | "placeHandOnMouth" | "openHand";
+type IntakeStep = "detectPillInHand" | "trackPillToMouth" | "verifyPillInMouth" | "confirmTaken";
 
 type Landmark = {
   x: number;
@@ -73,17 +73,24 @@ export default function PillDetector({
   const intakeStepRef = useRef<IntakeStep>("detectPillInHand");
   const nearMouthAtRef = useRef<number | null>(null);
   const lastNearMouthAtRef = useRef<number | null>(null);
+  const mouthEvidenceAtRef = useRef<number | null>(null);
   const releaseAtRef = useRef<number | null>(null);
+  const pathStartRef = useRef<Landmark | null>(null);
+  const pathStartMouthDistanceRef = useRef<number | null>(null);
+  const pathMaxTravelRef = useRef(0);
+  const pathReachedMouthRef = useRef(false);
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
   const [hint, setHint] = useState("Step 1: hold the pill between thumb and index finger");
-  const PILL_HOLD_MS = 350;
-  const MOUTH_HOLD_MS = 350;
-  const RELEASE_HOLD_MS = 300;
-  const STEP_TIMEOUT_MS = 7000;
-  const MOUTH_RELEASE_GRACE_MS = 1200;
+  const PILL_HOLD_MS = 650;
+  const MOUTH_HOLD_MS = 550;
+  const CONFIRM_HOLD_MS = 450;
+  const STEP_TIMEOUT_MS = 9000;
+  const MOUTH_RELEASE_GRACE_MS = 1100;
+  const MIN_PATH_TRAVEL = 0.16;
+  const MIN_MOUTH_APPROACH = 0.08;
 
   useEffect(() => () => stopCamera(), []);
 
@@ -138,7 +145,12 @@ export default function PillDetector({
       pillHeldAtRef.current = null;
       nearMouthAtRef.current = null;
       lastNearMouthAtRef.current = null;
+      mouthEvidenceAtRef.current = null;
       releaseAtRef.current = null;
+      pathStartRef.current = null;
+      pathStartMouthDistanceRef.current = null;
+      pathMaxTravelRef.current = 0;
+      pathReachedMouthRef.current = false;
       setPhase("detecting");
     } catch (error) {
       setErrorMsg(error instanceof Error ? error.message : "Camera access denied");
@@ -162,6 +174,32 @@ export default function PillDetector({
 
   function distance(a: Landmark, b: Landmark) {
     return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+  }
+
+  function isPointInZone(point: Landmark, zone: { left: number; right: number; top: number; bottom: number }) {
+    return (
+      point.x >= zone.left &&
+      point.x <= zone.right &&
+      point.y >= zone.top &&
+      point.y <= zone.bottom
+    );
+  }
+
+  function resetVerification(message = "Step 1: hold the pill between thumb and index finger") {
+    intakeStepRef.current = "detectPillInHand";
+    stepStartedAtRef.current = Date.now();
+    pillHeldAtRef.current = null;
+    nearMouthAtRef.current = null;
+    lastNearMouthAtRef.current = null;
+    mouthEvidenceAtRef.current = null;
+    releaseAtRef.current = null;
+    pathStartRef.current = null;
+    pathStartMouthDistanceRef.current = null;
+    pathMaxTravelRef.current = 0;
+    pathReachedMouthRef.current = false;
+    setProgress(0);
+    setPhase("detecting");
+    setHint(message);
   }
 
   function confirmIntake() {
@@ -189,22 +227,16 @@ export default function PillDetector({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (!results.multiHandLandmarks?.length) {
-      const wasRecentlyNearMouth =
-        lastNearMouthAtRef.current !== null &&
-        Date.now() - lastNearMouthAtRef.current < MOUTH_RELEASE_GRACE_MS;
-
-      if (intakeStepRef.current === "openHand" && wasRecentlyNearMouth) {
-        if (!releaseAtRef.current) releaseAtRef.current = Date.now();
-        const releaseElapsed = Date.now() - releaseAtRef.current;
-        setProgress(Math.min(75 + (releaseElapsed / RELEASE_HOLD_MS) * 25, 100));
-        setHint("Release detected");
-
-        if (releaseElapsed >= RELEASE_HOLD_MS) {
-          confirmIntake();
-        }
-      } else {
+      releaseAtRef.current = null;
+      if (intakeStepRef.current === "detectPillInHand") {
         pillHeldAtRef.current = null;
         setProgress(0);
+      }
+      if (intakeStepRef.current === "verifyPillInMouth") {
+        setHint("Step 3: keep the pill at your mouth for a moment");
+      } else if (intakeStepRef.current === "confirmTaken") {
+        setHint("Step 4: show a thumbs up to verify");
+      } else {
         setHint("Show your hand clearly in the camera");
       }
       return;
@@ -224,10 +256,13 @@ export default function PillDetector({
     const indexTip = lm[8];
     const middleTip = lm[12];
     const ringTip = lm[16];
+    const pinkyTip = lm[20];
     const palmBase = lm[0];
+    const thumbMcp = lm[2];
     const indexBase = lm[5];
     const middleBase = lm[9];
     const ringBase = lm[13];
+    const pinkyBase = lm[17];
     const handScale = Math.max(distance(palmBase, middleBase), 0.12);
     const pinchDistance = pinchDist(lm);
     const thumbToMiddle = distance(thumbTip, middleTip);
@@ -239,21 +274,48 @@ export default function PillDetector({
         return distance(tip, palmBase) < distance(base, palmBase) * 1.25;
       }
     ).length;
-    const isPinching = thumbIndexRatio < 0.82 || thumbMiddleRatio < 0.82;
-    const isClosedGrip = curledFingerCount >= 2 && (thumbIndexRatio < 1.18 || thumbMiddleRatio < 1.18);
+    const isPinching = thumbIndexRatio < 0.55;
+    const isClosedGrip = curledFingerCount >= 2 && thumbIndexRatio < 0.95 && thumbMiddleRatio < 1.05;
     const isHoldingMedicine = isPinching || isClosedGrip;
-    const isReleased = thumbIndexRatio > 1.18 && thumbMiddleRatio > 1.18 && curledFingerCount === 0;
+    const foldedFingersCount = [indexTip, middleTip, ringTip, pinkyTip].filter(
+      (tip, index) => {
+        const base = [indexBase, middleBase, ringBase, pinkyBase][index];
+        return distance(tip, palmBase) < distance(base, palmBase) * 1.45 || tip.y > base.y;
+      }
+    ).length;
+    const thumbExtendedUp = thumbTip.y < Math.min(thumbMcp.y, indexBase.y, middleBase.y) - handScale * 0.15;
+    const isThumbsUp =
+      thumbExtendedUp &&
+      foldedFingersCount >= 3 &&
+      distance(thumbTip, palmBase) > distance(thumbMcp, palmBase) * 1.1;
     const pinchCenterX = (thumbTip.x + indexTip.x) / 2;
     const pinchCenterY = (thumbTip.y + indexTip.y) / 2;
-    const mouthZoneLeft = 0.22;
-    const mouthZoneRight = 0.78;
-    const mouthZoneTop = 0.22;
-    const mouthZoneBottom = 0.68;
-    const isHandOnMouth =
-      pinchCenterX >= mouthZoneLeft &&
-      pinchCenterX <= mouthZoneRight &&
-      pinchCenterY >= mouthZoneTop &&
-      pinchCenterY <= mouthZoneBottom;
+    const mouthZone = {
+      left: 0.24,
+      right: 0.76,
+      top: 0.34,
+      bottom: 0.74,
+    };
+    const lowerFaceZone = {
+      left: 0.18,
+      right: 0.82,
+      top: 0.28,
+      bottom: 0.8,
+    };
+    const pinchCenter = { x: pinchCenterX, y: pinchCenterY };
+    const mouthCenter = { x: 0.5, y: 0.54 };
+    const mouthCheckPoints = [
+      pinchCenter,
+      thumbTip,
+      indexTip,
+      middleTip,
+      palmBase,
+      middleBase,
+    ];
+    const fingertipNearMouth = [thumbTip, indexTip, middleTip].some((point) => isPointInZone(point, mouthZone));
+    const pointsNearLowerFace = mouthCheckPoints.filter((point) => isPointInZone(point, lowerFaceZone)).length;
+    const pinchNearLowerFace = isPointInZone(pinchCenter, lowerFaceZone);
+    const isHandOnMouth = fingertipNearMouth && pinchNearLowerFace && pointsNearLowerFace >= 2;
 
     if (isHandOnMouth) {
       lastNearMouthAtRef.current = Date.now();
@@ -263,10 +325,10 @@ export default function PillDetector({
     ctx.lineWidth = 2;
     ctx.setLineDash([8, 6]);
     ctx.strokeRect(
-      mouthZoneLeft * canvas.width,
-      mouthZoneTop * canvas.height,
-      (mouthZoneRight - mouthZoneLeft) * canvas.width,
-      (mouthZoneBottom - mouthZoneTop) * canvas.height,
+      mouthZone.left * canvas.width,
+      mouthZone.top * canvas.height,
+      (mouthZone.right - mouthZone.left) * canvas.width,
+      (mouthZone.bottom - mouthZone.top) * canvas.height,
     );
     ctx.setLineDash([]);
 
@@ -284,19 +346,36 @@ export default function PillDetector({
     if (intakeStepRef.current === "detectPillInHand") {
       nearMouthAtRef.current = null;
       lastNearMouthAtRef.current = null;
+      mouthEvidenceAtRef.current = null;
       releaseAtRef.current = null;
+      pathStartRef.current = null;
+      pathStartMouthDistanceRef.current = null;
+      pathMaxTravelRef.current = 0;
+      pathReachedMouthRef.current = false;
 
       if (isHoldingMedicine) {
+        if (isHandOnMouth || isPointInZone(pinchCenter, lowerFaceZone)) {
+          pillHeldAtRef.current = null;
+          setProgress(0);
+          setPhase("detecting");
+          setHint("Start with the pill visible away from your mouth");
+          return;
+        }
+
         if (!pillHeldAtRef.current) pillHeldAtRef.current = Date.now();
         const pillHeldElapsed = Date.now() - pillHeldAtRef.current;
         setProgress(Math.min((pillHeldElapsed / PILL_HOLD_MS) * 25, 25));
         setPhase("holding");
 
         if (pillHeldElapsed >= PILL_HOLD_MS) {
-          intakeStepRef.current = "placeHandOnMouth";
+          intakeStepRef.current = "trackPillToMouth";
           stepStartedAtRef.current = Date.now();
+          pathStartRef.current = pinchCenter;
+          pathStartMouthDistanceRef.current = distance(pinchCenter, mouthCenter);
+          pathMaxTravelRef.current = 0;
+          pathReachedMouthRef.current = false;
           setProgress(25);
-          setHint("Step 2: pill detected, place your hand inside the mouth box");
+          setHint("Step 2: move the held pill from here to your mouth");
         } else {
           setHint("Step 1: keep the pill pinched for a moment");
         }
@@ -310,51 +389,47 @@ export default function PillDetector({
       return;
     }
 
-    if (intakeStepRef.current === "placeHandOnMouth") {
+    if (intakeStepRef.current === "trackPillToMouth") {
       if (stepStartedAtRef.current && Date.now() - stepStartedAtRef.current > STEP_TIMEOUT_MS) {
-        intakeStepRef.current = "detectPillInHand";
-        stepStartedAtRef.current = Date.now();
-        pillHeldAtRef.current = null;
-        setProgress(0);
-        setPhase("detecting");
-        setHint("Try again: first show the pill held in your fingers");
+        resetVerification("Try again: show the pill first, then move it to your mouth");
         return;
       }
 
-      if (!isHoldingMedicine && !isHandOnMouth) {
-        intakeStepRef.current = "detectPillInHand";
-        stepStartedAtRef.current = Date.now();
-        pillHeldAtRef.current = null;
-        setProgress(0);
-        setPhase("detecting");
-        setHint("Keep holding the pill until your hand reaches your mouth");
+      if (pathStartRef.current) {
+        pathMaxTravelRef.current = Math.max(pathMaxTravelRef.current, distance(pathStartRef.current, pinchCenter));
+      }
+
+      const mouthDistance = distance(pinchCenter, mouthCenter);
+      const mouthApproach =
+        pathStartMouthDistanceRef.current !== null
+          ? pathStartMouthDistanceRef.current - mouthDistance
+          : 0;
+      const hasValidPath = pathMaxTravelRef.current >= MIN_PATH_TRAVEL && mouthApproach >= MIN_MOUTH_APPROACH;
+      const recentlyReachedMouth =
+        lastNearMouthAtRef.current !== null &&
+        Date.now() - lastNearMouthAtRef.current <= MOUTH_RELEASE_GRACE_MS;
+
+      if (!isHoldingMedicine && !recentlyReachedMouth) {
+        resetVerification("Keep the pill visible until it reaches your mouth");
         return;
       }
 
-      if (!isHoldingMedicine && isHandOnMouth && nearMouthAtRef.current) {
-        intakeStepRef.current = "openHand";
-        releaseAtRef.current = Date.now();
-        setProgress(80);
-        setPhase("holding");
-        setHint("Step 3: open hand detected");
-        return;
-      }
-
-      setProgress(isHandOnMouth ? 60 : 40);
+      setProgress(isHandOnMouth && hasValidPath ? 60 : Math.min(25 + pathMaxTravelRef.current * 120, 52));
       setPhase("holding");
-      setHint(isHandOnMouth ? "Hand on mouth detected, hold briefly" : "Step 2: place your hand inside the mouth box");
+      setHint(
+        isHandOnMouth
+          ? hasValidPath
+            ? "Step 3: pill reached your mouth, hold briefly"
+            : "Move the pill from away position into your mouth, not directly near it"
+          : "Step 2: keep holding and move the pill into the mouth box"
+      );
 
-      if (isHandOnMouth) {
-        if (!nearMouthAtRef.current) nearMouthAtRef.current = Date.now();
-        const mouthElapsed = Date.now() - nearMouthAtRef.current;
-        setProgress(Math.min(55 + (mouthElapsed / MOUTH_HOLD_MS) * 20, 75));
-
-        if (mouthElapsed >= MOUTH_HOLD_MS) {
-          intakeStepRef.current = "openHand";
-          releaseAtRef.current = null;
-          setProgress(75);
-          setHint("Step 3: open your hand");
-        }
+      if (isHandOnMouth && hasValidPath) {
+        intakeStepRef.current = "verifyPillInMouth";
+        stepStartedAtRef.current = Date.now();
+        mouthEvidenceAtRef.current = Date.now();
+        setProgress(60);
+        setHint("Step 3: verifier is checking pill at your mouth");
       } else {
         nearMouthAtRef.current = null;
       }
@@ -362,33 +437,68 @@ export default function PillDetector({
       return;
     }
 
-    if (intakeStepRef.current === "openHand") {
-      setPhase("holding");
-      const wasRecentlyNearMouth =
-        lastNearMouthAtRef.current !== null &&
-        Date.now() - lastNearMouthAtRef.current < MOUTH_RELEASE_GRACE_MS;
-
-      if (!isHandOnMouth && !wasRecentlyNearMouth && isHoldingMedicine) {
-        intakeStepRef.current = "placeHandOnMouth";
-        releaseAtRef.current = null;
-        setProgress(50);
-        setHint("Put your hand back on your mouth before opening");
+    if (intakeStepRef.current === "verifyPillInMouth") {
+      if (stepStartedAtRef.current && Date.now() - stepStartedAtRef.current > STEP_TIMEOUT_MS) {
+        resetVerification("Try again: the verifier needs to see the pill inside your mouth");
         return;
       }
 
-      if (isReleased || (wasRecentlyNearMouth && !isHoldingMedicine)) {
-        if (!releaseAtRef.current) releaseAtRef.current = Date.now();
-        const releaseElapsed = Date.now() - releaseAtRef.current;
-        setProgress(Math.min(75 + (releaseElapsed / RELEASE_HOLD_MS) * 25, 100));
-        setHint("Open hand detected");
+      const recentlyAtMouth =
+        lastNearMouthAtRef.current !== null &&
+        Date.now() - lastNearMouthAtRef.current <= MOUTH_RELEASE_GRACE_MS;
 
-        if (releaseElapsed >= RELEASE_HOLD_MS) {
+      setPhase("holding");
+
+      if (isHandOnMouth || recentlyAtMouth) {
+        if (!nearMouthAtRef.current) nearMouthAtRef.current = Date.now();
+        if (!mouthEvidenceAtRef.current) mouthEvidenceAtRef.current = Date.now();
+        const mouthElapsed = Date.now() - nearMouthAtRef.current;
+        setProgress(Math.min(60 + (mouthElapsed / MOUTH_HOLD_MS) * 20, 80));
+        setHint("Step 3: verifier is checking pill inside mouth");
+
+        if (mouthElapsed >= MOUTH_HOLD_MS) {
+          intakeStepRef.current = "confirmTaken";
+          stepStartedAtRef.current = Date.now();
+          releaseAtRef.current = null;
+          pathReachedMouthRef.current = true;
+          setProgress(80);
+          setHint("Step 4: show thumbs up to verify");
+        }
+      } else {
+        nearMouthAtRef.current = null;
+        setProgress(60);
+        setHint("Step 3: keep the pill inside the mouth box");
+      }
+
+      return;
+    }
+
+    if (intakeStepRef.current === "confirmTaken") {
+      setPhase("holding");
+
+      if (!pathReachedMouthRef.current) {
+        resetVerification("Try again: the pill must travel to the mouth before confirmation");
+        return;
+      }
+
+      if (stepStartedAtRef.current && Date.now() - stepStartedAtRef.current > STEP_TIMEOUT_MS) {
+        resetVerification("Try again: show thumbs up after the pill reaches your mouth");
+        return;
+      }
+
+      if (isThumbsUp) {
+        if (!releaseAtRef.current) releaseAtRef.current = Date.now();
+        const confirmElapsed = Date.now() - releaseAtRef.current;
+        setProgress(Math.min(80 + (confirmElapsed / CONFIRM_HOLD_MS) * 20, 100));
+        setHint("Thumbs up detected");
+
+        if (confirmElapsed >= CONFIRM_HOLD_MS) {
           confirmIntake();
         }
       } else {
         releaseAtRef.current = null;
-        setProgress(75);
-        setHint("Step 3: open your hand after placing it on your mouth");
+        setProgress(80);
+        setHint("Step 4: show thumbs up to verify");
       }
     }
   }
@@ -455,7 +565,12 @@ export default function PillDetector({
               pillHeldAtRef.current = null;
               nearMouthAtRef.current = null;
               lastNearMouthAtRef.current = null;
+              mouthEvidenceAtRef.current = null;
               releaseAtRef.current = null;
+              pathStartRef.current = null;
+              pathStartMouthDistanceRef.current = null;
+              pathMaxTravelRef.current = 0;
+              pathReachedMouthRef.current = false;
               setProgress(0);
               setHint("Step 1: hold the pill between thumb and index finger");
               setPhase("idle");

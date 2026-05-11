@@ -67,7 +67,7 @@ export default function PatientRegistrationPage() {
         viewerPassword: formData.viewerPassword,
       });
       toast.success('Patient registered');
-      navigate('/');
+      navigate('/patient-access');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Registration failed');
     } finally {
