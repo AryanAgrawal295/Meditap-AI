@@ -8,6 +8,7 @@ import {
   FileImage,
   HeartPulse,
   Pill,
+  RefreshCcw,
   ShieldCheck,
   XCircle,
   ExternalLink,
@@ -15,6 +16,7 @@ import {
 import { DashboardLayout } from '@/layouts/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import PillDetector from '@/components/PillDetector';
 import { useToast } from '@/hooks/use-toast';
 import { useApp } from '@/contexts/AppContext';
 import { MedicationDose, MedicationMedicine, MedicationPlan } from '@/types/patient';
@@ -320,19 +322,15 @@ export default function PrescriptionsPage() {
               </Button>
             </div>
 
-            <div className="my-5 aspect-video rounded-lg border border-dashed border-border bg-secondary/70 flex items-center justify-center">
-              <Camera className="text-primary" size={42} />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Button variant="medical" onClick={() => handleVerify(true)}>
-                <CheckCircle2 size={18} />
-                Verified
-              </Button>
-              <Button variant="secondary" onClick={() => handleVerify(false)}>
-                <Bell size={18} />
-                Escalate
-              </Button>
+            <div className="mt-4">
+              <PillDetector
+                medicineId={activeDose.medicineId}
+                scheduledTime={activeDose.scheduledAt}
+                onIntakeConfirmed={() => {
+                  void handleVerify(true);
+                }}
+                onCancel={() => setActiveDose(null)}
+              />
             </div>
           </div>
         </div>
