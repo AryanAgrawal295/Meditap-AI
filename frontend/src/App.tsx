@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppProvider } from "@/contexts/AppContext";
+import PatientStartPage from "./pages/PatientStartPage";
 import BasicInfoPage from "./pages/BasicInfoPage";
 import PatientLookupPage from "./pages/PatientLookupPage";
 import PatientRegistrationPage from "./pages/PatientRegistrationPage";
@@ -26,9 +27,10 @@ const App = () => (
       <AppProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
           <Routes>
-            <Route path="/" element={<BasicInfoPage />} />
+            <Route path="/" element={<PatientStartPage />} />
+            <Route path="/patient-access" element={<BasicInfoPage />} />
             <Route path="/patient-lookup" element={<PatientLookupPage />} />
             <Route path="/register-patient" element={<PatientRegistrationPage />} />
             <Route path="/role-selection" element={<RoleSelectionPage />} />

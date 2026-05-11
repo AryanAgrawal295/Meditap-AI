@@ -192,6 +192,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setPrescriptions(derivePrescriptions(records));
   }, []);
 
+  const resetSession = useCallback(() => {
+    clearStoredSession();
+    setIsAuthenticated(false);
+    setRole(null);
+    setAuthUser(null);
+    setCurrentPatientId(null);
+    setPatient(null);
+    setMedicalRecords([]);
+    setPrescriptions([]);
+    setMedicationPlans([]);
+  }, [setAuthUser, setRole]);
+
+  useEffect(() => {
+    window.addEventListener('meditap:auth-expired', resetSession);
+
+    return () => {
+      window.removeEventListener('meditap:auth-expired', resetSession);
+    };
+  }, [resetSession]);
+
   const fetchPatientProfile = useCallback(async (patientId: string) => {
     setIsLoadingPatient(true);
 
@@ -681,16 +701,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [currentPatientId]);
 
   const logout = useCallback(() => {
-    clearStoredSession();
-    setIsAuthenticated(false);
-    setRole(null);
-    setAuthUser(null);
-    setCurrentPatientId(null);
-    setPatient(null);
-    setMedicalRecords([]);
-    setPrescriptions([]);
-    setMedicationPlans([]);
-  }, [setAuthUser, setRole]);
+    resetSession();
+  }, [resetSession]);
 
   const value = useMemo(() => ({
     patient,

@@ -1,4 +1,5 @@
 import {
+  clearStoredTokens,
   getStoredAccessToken,
   getStoredRefreshToken,
   setStoredTokens,
@@ -15,12 +16,18 @@ type RequestOptions = {
 
 let refreshPromise: Promise<string | null> | null = null;
 
+function notifyAuthExpired() {
+  clearStoredTokens();
+  window.dispatchEvent(new Event('meditap:auth-expired'));
+}
+
 async function refreshAccessToken() {
   if (!refreshPromise) {
     refreshPromise = (async () => {
       const refreshToken = getStoredRefreshToken();
 
       if (!refreshToken) {
+        notifyAuthExpired();
         return null;
       }
 
@@ -33,6 +40,7 @@ async function refreshAccessToken() {
       });
 
       if (!response.ok) {
+        notifyAuthExpired();
         return null;
       }
 
@@ -128,6 +136,8 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
       return parseResponse<T>(retryResponse);
     }
+
+    notifyAuthExpired();
   }
 
   return parseResponse<T>(response);
