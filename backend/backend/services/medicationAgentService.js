@@ -1,4 +1,5 @@
 const OpenAI = require("openai");
+const HANDWRITING_CONFIDENCE_THRESHOLD = Number(process.env.OCR_CONFIDENCE_THRESHOLD) || 75;
 
 const aiProvider = (process.env.AI_PROVIDER || "xai").toLowerCase();
 const providerConfig = {
@@ -371,6 +372,101 @@ function verifyIntakeEvidence({ pillDetected, gestureDetected, confidence = 0, n
   };
 }
 
+/**
+ * Vision-based medicine extraction — sends image directly to multimodal LLM.
+ * Far more accurate than OCR→LLM pipeline for handwritten prescriptions.
+ */
+async function extractMedicinesFromImage(imageBuffer, mimeType = "image/jpeg") {
+  if (!selectedProvider.apiKey || isProviderRateLimited()) {
+    return null; // caller will use text-based fallback
+  }
+
+  // Only GPT-4o and Gemini support vision. xAI grok may not yet.
+  const visionSupportedProviders = ["openai", "gemini"];
+  if (!visionSupportedProviders.includes(aiProvider)) {
+    console.warn(`Vision extraction not supported for provider: ${aiProvider}. Using text pipeline.`);
+    return null;
+  }
+
+  try {
+    const base64Image = imageBuffer.toString("base64");
+
+    const response = await openai.chat.completions.create({
+      model: selectedProvider.model, // gpt-4o or gemini-2.5-flash — both support vision
+      temperature: 0.05,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: `You are a medical prescription digitization expert with 20+ years reading doctor handwriting.
+Extract ALL medicines from this prescription image, even if the handwriting is unclear.
+Use your medical knowledge to infer correct medicine names from partial/unclear letters.
+For ambiguous text, prefer common medicine names that fit the visible letters.
+
+Return ONLY valid JSON in this exact format:
+{
+  "medicines": [
+    {
+      "name": "medicine name",
+      "dosage": "e.g. 500mg",
+      "timing": ["morning", "afternoon", "evening", "night"],
+      "duration": "e.g. 5 days",
+      "durationDays": 5,
+      "frequency": "e.g. twice daily",
+      "frequencyPerDay": 2,
+      "quantityPerDose": 1,
+      "confidence": "high|medium|low",
+      "rawText": "what you actually read from image"
+    }
+  ],
+  "doctorName": "",
+  "hospitalName": "",
+  "patientName": "",
+  "visitDate": "",
+  "diagnosis": "",
+  "isHandwritten": true
+}
+
+Rules:
+- timing values must only be: morning, afternoon, evening, night
+- if dosage unclear, write "As prescribed"
+- confidence = "low" if you had to guess significantly
+- never omit a medicine because handwriting is bad — make your best inference`,
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${mimeType};base64,${base64Image}`,
+                detail: "high", // Use high detail for small handwritten text
+              },
+            },
+            {
+              type: "text",
+              text: "Extract all medicines and prescription details from this handwritten prescription. Be thorough — missing a medicine is worse than a low-confidence guess.",
+            },
+          ],
+        },
+      ],
+    });
+
+    const parsed = safeJsonParse(response.choices[0].message.content || "{}");
+
+    if (!Array.isArray(parsed.medicines) || parsed.medicines.length === 0) {
+      return null;
+    }
+
+    return parsed;
+  } catch (error) {
+    if (!rememberProviderRateLimit(error)) {
+      console.error("Vision extraction error:", getProviderErrorMessage(error));
+    }
+    return null;
+  }
+}
+
 module.exports = {
   buildDoseTimeline,
   extractRecordSuggestions,
@@ -378,4 +474,5 @@ module.exports = {
   getReminderLevel,
   summarizeAdherence,
   verifyIntakeEvidence,
+  extractMedicinesFromImage
 };

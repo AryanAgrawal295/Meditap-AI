@@ -6,6 +6,7 @@ const {
   extractRecordSuggestions,
   extractStructuredMedicines,
 } = require("../services/medicationAgentService");
+const { extractMedicinesFromImage } = require("../services/medicationAgentService");
 
 function cleanOCRText(text) {
   return text
@@ -17,66 +18,55 @@ function cleanOCRText(text) {
 exports.processPrescription = async (req, res) => {
   try {
     if (!req.file?.buffer) {
-      return res.status(400).json({
-        error: "No file uploaded",
-        message: "Attach a prescription image or PDF.",
-      });
+      return res.status(400).json({ error: "No file uploaded" });
     }
 
     let uploadedFile = null;
-
     try {
       uploadedFile = await uploadBuffer(req.file.buffer, {
         folder: `${process.env.CLOUDINARY_FOLDER || "meditap"}/ocr-inputs`,
-        public_id: req.file.originalname
-          ? req.file.originalname.replace(/\.[^/.]+$/, "")
-          : undefined,
+        public_id: req.file.originalname?.replace(/\.[^/.]+$/, "") || undefined,
       });
     } catch (uploadError) {
       console.warn("OCR file storage skipped:", uploadError.message);
     }
 
-    // Step 1: OCR
-    const rawText = await extractText(req.file.buffer);
-
-    // Step 2: Clean OCR text
+    // Step 1: Textract (now returns confidence + handwriting flag)
+    const textractResult = await extractText(req.file.buffer);
+    const rawText = textractResult.fullText || "";
     const cleanedText = cleanOCRText(rawText);
 
-    // Step 3: Medical entity extraction
-    const entities = await analyzeMedicalText(cleanedText);
+    const shouldUseVision = textractResult.hasHandwriting ||
+      (textractResult.confidence != null && textractResult.confidence < 75);
 
-    // Step 4: Filter useful entities
-    const importantCategories = [
-      "MEDICAL_CONDITION",
-      "MEDICATION",
-      "TEST_TREATMENT_PROCEDURE"
-    ];
-
+    // Step 2: Medical entities (Comprehend Medical — still useful even for handwriting)
+    const entities = await analyzeMedicalText(cleanedText || "prescription");
+    const importantCategories = ["MEDICAL_CONDITION", "MEDICATION", "TEST_TREATMENT_PROCEDURE"];
     const filteredEntities = entities.filter(
-      e => e.Score > 0.8 && importantCategories.includes(e.Category)
+      (e) => e.Score > 0.8 && importantCategories.includes(e.Category)
     );
+    const conditions = filteredEntities.filter((e) => e.Category === "MEDICAL_CONDITION").map((e) => e.Text);
+    const medications = filteredEntities.filter((e) => e.Category === "MEDICATION").map((e) => e.Text);
+    const procedures = filteredEntities.filter((e) => e.Category === "TEST_TREATMENT_PROCEDURE").map((e) => e.Text);
 
-    // Step 5: Create structured output
-    const conditions = filteredEntities
-      .filter(e => e.Category === "MEDICAL_CONDITION")
-      .map(e => e.Text);
+    // Step 3: Structured medicine extraction
+    let structuredMedicines;
+    let extractionMethod = "text-llm";
 
-    const medications = filteredEntities
-      .filter(e => e.Category === "MEDICATION")
-      .map(e => e.Text);
+    if (shouldUseVision) {
+      const visionResult = await extractMedicinesFromImage(req.file.buffer, req.file.mimetype);
+      if (visionResult?.medicines?.length) {
+        structuredMedicines = visionResult.medicines;
+        extractionMethod = "vision-llm";
+      } else {
+        structuredMedicines = await extractStructuredMedicines(cleanedText);
+      }
+    } else {
+      structuredMedicines = await extractStructuredMedicines(cleanedText);
+    }
 
-    const procedures = filteredEntities
-      .filter(e => e.Category === "TEST_TREATMENT_PROCEDURE")
-      .map(e => e.Text);
-
-    // Step 6: Agentic prescription structuring and medicine schedule preview
-    const structuredMedicines = await extractStructuredMedicines(cleanedText);
     const medicineSchedule = buildDoseTimeline(structuredMedicines);
-    const recordSuggestions = await extractRecordSuggestions(cleanedText, {
-      conditions,
-      medications,
-      procedures,
-    });
+    const recordSuggestions = await extractRecordSuggestions(cleanedText, { conditions, medications, procedures });
 
     res.json({
       fileUrl: uploadedFile?.secure_url || null,
@@ -87,15 +77,14 @@ exports.processPrescription = async (req, res) => {
       procedures,
       recordSuggestions,
       structuredMedicines,
-      medicineSchedule
+      medicineSchedule,
+      extractionMethod,             // "vision-llm" or "text-llm"
+      ocrConfidence: textractResult.confidence,
+      wasHandwritten: textractResult.hasHandwriting,
     });
 
   } catch (error) {
     console.error("OCR PROCESS ERROR:", error);
-
-    res.status(500).json({
-      error: "Processing failed",
-      message: error.message
-    });
+    res.status(500).json({ error: "Processing failed", message: error.message });
   }
 };

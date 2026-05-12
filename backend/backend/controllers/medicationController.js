@@ -8,6 +8,8 @@ const {
   summarizeAdherence,
   verifyIntakeEvidence,
 } = require("../services/medicationAgentService");
+const { extractMedicinesFromImage } = require("../services/medicationAgentService");
+const OCR_CONFIDENCE_THRESHOLD = Number(process.env.OCR_CONFIDENCE_THRESHOLD) || 75;
 
 function cleanOCRText(text = "") {
   return text
@@ -87,20 +89,49 @@ function canAccessPatient(req, patientId) {
 async function extractPrescriptionSchedule(file, prescriptionIndex) {
   let uploadedFile = null;
 
+  // 1. Upload to Cloudinary
   try {
     uploadedFile = await uploadBuffer(file.buffer, {
       folder: `${process.env.CLOUDINARY_FOLDER || "meditap"}/prescriptions`,
-      public_id: file.originalname
-        ? file.originalname.replace(/\.[^/.]+$/, "")
-        : undefined,
+      public_id: file.originalname?.replace(/\.[^/.]+$/, "") || undefined,
     });
   } catch (uploadError) {
     console.warn("Prescription file storage skipped:", uploadError.message);
   }
 
-  const rawText = await extractText(file.buffer);
+  // 2. Run AWS Textract (now returns structured result with confidence + handwriting flag)
+  const textractResult = await extractText(file.buffer);
+  const rawText = textractResult.fullText || "";
   const cleanedText = cleanOCRText(rawText);
-  const structuredMedicines = await extractStructuredMedicines(cleanedText);
+
+  const isLowConfidence = textractResult.confidence != null && textractResult.confidence < OCR_CONFIDENCE_THRESHOLD;
+  const hasHandwriting = textractResult.hasHandwriting;
+  const shouldUseVision = hasHandwriting || isLowConfidence;
+
+  let structuredMedicines;
+  let extractionMethod = "text-llm";
+
+  if (shouldUseVision) {
+    // 3a. HANDWRITING PATH: Vision LLM reads the image directly
+    console.log(`Handwriting detected (confidence: ${textractResult.confidence}%). Using vision extraction.`);
+
+    const mimeType = file.mimetype || "image/jpeg";
+    const visionResult = await extractMedicinesFromImage(file.buffer, mimeType);
+
+    if (visionResult?.medicines?.length) {
+      structuredMedicines = visionResult.medicines;
+      extractionMethod = "vision-llm";
+    } else {
+      // Vision failed — fall through to text pipeline
+      console.warn("Vision extraction returned empty. Falling back to text pipeline.");
+      structuredMedicines = await extractStructuredMedicines(cleanedText);
+    }
+  } else {
+    // 3b. PRINTED PATH: existing text → LLM pipeline
+    structuredMedicines = await extractStructuredMedicines(cleanedText);
+    extractionMethod = "text-llm";
+  }
+
   const tag = `Prescription ${prescriptionIndex}`;
   const medicines = buildDoseTimeline(structuredMedicines).map((medicine) => ({
     ...medicine,
@@ -108,6 +139,7 @@ async function extractPrescriptionSchedule(file, prescriptionIndex) {
     prescriptionTag: tag,
     sourceFileName: file.originalname,
   }));
+
   const prescriptionFile = {
     index: prescriptionIndex,
     tag,
@@ -118,8 +150,18 @@ async function extractPrescriptionSchedule(file, prescriptionIndex) {
     fileFormat: uploadedFile?.format || file.originalname?.split(".").pop() || null,
   };
 
-  return { rawText, cleanedText, structuredMedicines, medicines, prescriptionFile };
+  return {
+    rawText,
+    cleanedText,
+    structuredMedicines,
+    medicines,
+    prescriptionFile,
+    extractionMethod,        // tells frontend which pipeline was used
+    ocrConfidence: textractResult.confidence,
+    wasHandwritten: hasHandwriting,
+  };
 }
+
 
 exports.createPlanFromPrescription = async (req, res) => {
   try {
