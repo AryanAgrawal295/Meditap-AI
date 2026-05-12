@@ -56,6 +56,15 @@ const medicineSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    prescriptionIndex: {
+      type: Number,
+      default: 1,
+    },
+    prescriptionTag: {
+      type: String,
+      default: "Prescription 1",
+    },
+    sourceFileName: String,
     refillReminderAt: Date,
     doses: [medicineDoseSchema],
   },
@@ -85,6 +94,21 @@ const medicationPlanSchema = new mongoose.Schema(
     sourceFileName: String,
     sourceFileResourceType: String,
     sourceFileFormat: String,
+    prescriptionFiles: [
+      {
+        index: Number,
+        tag: String,
+        fileUrl: String,
+        filePublicId: String,
+        fileName: String,
+        fileResourceType: String,
+        fileFormat: String,
+        uploadedAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
     medicines: [medicineSchema],
     agentTrace: [
       {

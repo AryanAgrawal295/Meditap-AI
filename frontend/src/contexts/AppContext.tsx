@@ -116,7 +116,7 @@ interface AppContextType {
       quantityPerDose?: number;
     }>;
   }>;
-  uploadPrescriptionForSchedule: (file: File) => Promise<MedicationPlan>;
+  uploadPrescriptionForSchedule: (file: File, scheduleId?: string) => Promise<MedicationPlan>;
   verifyDoseWithAI: (payload: {
     planId: string;
     medicineId: string;
@@ -191,6 +191,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setMedicalRecords(mappedRecords);
     setPrescriptions(derivePrescriptions(records));
   }, []);
+
+  const resetSession = useCallback(() => {
+    clearStoredSession();
+    setIsAuthenticated(false);
+    setRole(null);
+    setAuthUser(null);
+    setCurrentPatientId(null);
+    setPatient(null);
+    setMedicalRecords([]);
+    setPrescriptions([]);
+    setMedicationPlans([]);
+  }, [setAuthUser, setRole]);
+
+  useEffect(() => {
+    window.addEventListener('meditap:auth-expired', resetSession);
+
+    return () => {
+      window.removeEventListener('meditap:auth-expired', resetSession);
+    };
+  }, [resetSession]);
 
   const fetchPatientProfile = useCallback(async (patientId: string) => {
     setIsLoadingPatient(true);
@@ -536,7 +556,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [currentPatientId]);
 
-  const uploadPrescriptionForSchedule = useCallback(async (file: File) => {
+  const uploadPrescriptionForSchedule = useCallback(async (file: File, scheduleId?: string) => {
     if (!currentPatientId) {
       throw new Error('No patient selected');
     }
@@ -545,13 +565,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     formData.append('file', file);
     formData.append('patientId', currentPatientId);
 
-    const response = await apiRequest<{ plan: MedicationPlan }>('/medication/prescription', {
+    const response = await apiRequest<{ plan: MedicationPlan }>(
+      scheduleId ? `/medication/${scheduleId}/prescription` : '/medication/prescription',
+      {
       method: 'POST',
       auth: true,
       body: formData,
-    });
+      }
+    );
 
-    setMedicationPlans((prev) => [response.plan, ...prev]);
+    setMedicationPlans((prev) => {
+      if (scheduleId) {
+        return prev.map((plan) => (plan.id === response.plan.id ? response.plan : plan));
+      }
+
+      return [response.plan, ...prev];
+    });
     return response.plan;
   }, [currentPatientId]);
 
@@ -681,16 +710,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [currentPatientId]);
 
   const logout = useCallback(() => {
-    clearStoredSession();
-    setIsAuthenticated(false);
-    setRole(null);
-    setAuthUser(null);
-    setCurrentPatientId(null);
-    setPatient(null);
-    setMedicalRecords([]);
-    setPrescriptions([]);
-    setMedicationPlans([]);
-  }, [setAuthUser, setRole]);
+    resetSession();
+  }, [resetSession]);
 
   const value = useMemo(() => ({
     patient,

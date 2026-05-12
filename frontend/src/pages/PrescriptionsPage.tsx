@@ -1,14 +1,18 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlarmClock,
   Bell,
+  CalendarDays,
   Camera,
   CheckCircle2,
   Clock,
   FileImage,
   HeartPulse,
   Pill,
+  RefreshCcw,
   ShieldCheck,
+  Upload,
+  Plus,
   XCircle,
   ExternalLink,
   RefreshCcw,
@@ -27,6 +31,8 @@ type TimelineDose = MedicationDose & {
   medicineId: string;
   medicineName: string;
   dosage: string;
+  prescriptionIndex?: number;
+  prescriptionTag?: string;
 };
 
 function formatDateTime(value: string) {
@@ -54,6 +60,8 @@ function flattenTimeline(plans: MedicationPlan[]) {
           medicineId: medicine._id,
           medicineName: medicine.name,
           dosage: medicine.dosage,
+          prescriptionIndex: medicine.prescriptionIndex,
+          prescriptionTag: medicine.prescriptionTag,
         }))
       )
     )
@@ -93,6 +101,9 @@ function MedicineCard({ medicine }: { medicine: MedicationMedicine }) {
         </div>
         <Pill className="text-primary shrink-0" size={20} />
       </div>
+      <span className="mt-3 inline-flex rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+        {medicine.prescriptionTag || `Prescription ${medicine.prescriptionIndex || 1}`}
+      </span>
       <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
         <div>
           <p className="text-xs uppercase text-muted-foreground">Timing</p>
@@ -119,15 +130,76 @@ function MedicineCard({ medicine }: { medicine: MedicationMedicine }) {
 export default function PrescriptionsPage() {
   const {
     medicationPlans,
+    uploadPrescriptionForSchedule,
     verifyDoseWithAI,
     updateDoseStatus,
   } = useApp();
   const { toast } = useToast();
   const [activeDose, setActiveDose] = useState<TimelineDose | null>(null);
+  const [isUploadingPrescription, setIsUploadingPrescription] = useState(false);
+  const [activeScheduleId, setActiveScheduleId] = useState<string>('');
+  const prescriptionInputRef = useRef<HTMLInputElement>(null);
 
-  const timeline = useMemo(() => flattenTimeline(medicationPlans), [medicationPlans]);
-  const adherence = useMemo(() => getPlanAdherence(medicationPlans), [medicationPlans]);
-  const refillAlerts = medicationPlans.flatMap((plan) => plan.refillAlerts);
+  const activePlan = useMemo(
+    () => medicationPlans.find((plan) => plan.id === activeScheduleId) || null,
+    [activeScheduleId, medicationPlans]
+  );
+  const visiblePlans = useMemo(
+    () => [...medicationPlans].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [medicationPlans]
+  );
+  const timeline = useMemo(() => flattenTimeline(activePlan ? [activePlan] : []), [activePlan]);
+  const adherence = useMemo(() => getPlanAdherence(activePlan ? [activePlan] : []), [activePlan]);
+  const refillAlerts = activePlan?.refillAlerts || [];
+  const prescriptionFiles = activePlan?.prescriptionFiles?.length
+    ? activePlan.prescriptionFiles
+    : activePlan?.sourceFileUrl
+      ? [{
+          index: 1,
+          tag: 'Prescription 1',
+          fileUrl: activePlan.sourceFileUrl,
+          fileName: activePlan.sourceFileName,
+          uploadedAt: activePlan.createdAt,
+        }]
+      : [];
+
+  useEffect(() => {
+    if (activeScheduleId === '') {
+      setActiveScheduleId(medicationPlans[0]?.id || 'new');
+      return;
+    }
+
+    if (activeScheduleId === 'new') return;
+    if (!medicationPlans.some((plan) => plan.id === activeScheduleId)) {
+      setActiveScheduleId(medicationPlans[0]?.id || 'new');
+    }
+  }, [activeScheduleId, medicationPlans]);
+
+  const handlePrescriptionUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsUploadingPrescription(true);
+      const plan = await uploadPrescriptionForSchedule(file, activePlan?.id);
+      setActiveScheduleId(plan.id);
+      toast({
+        title: activePlan ? 'Prescription added' : 'Schedule created',
+        description: activePlan
+          ? 'Medicines were added to this schedule with the next prescription tag.'
+          : 'AI created a new medication schedule and adherence timeline.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Upload failed',
+        description: error instanceof Error ? error.message : 'Could not upload the prescription.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsUploadingPrescription(false);
+      event.target.value = '';
+    }
+  };
 
   const handleVerify = async (verified: boolean) => {
     if (!activeDose) return;
@@ -158,41 +230,134 @@ export default function PrescriptionsPage() {
             <p className="text-sm font-medium text-primary">NFC Next Level</p>
             <h1 className="font-display text-3xl lg:text-4xl text-foreground">Medication Adherence</h1>
             <p className="text-muted-foreground mt-1">
-              Prescription schedules are created from the Add Medical Record flow, then tracked here with reminder escalation, verification, and refill prediction.
+              Open previous schedules, start a new one, or add another prescription to the active schedule.
             </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setActiveScheduleId('new')}
+            >
+              <Plus size={16} />
+              New Schedule
+            </Button>
+            <Button
+              type="button"
+              variant="medical"
+              onClick={() => prescriptionInputRef.current?.click()}
+              disabled={isUploadingPrescription}
+            >
+              {isUploadingPrescription ? <RefreshCcw size={16} className="animate-spin" /> : <Upload size={16} />}
+              {isUploadingPrescription ? 'Uploading...' : activePlan ? 'Add Prescription' : 'Upload Prescription'}
+            </Button>
+            <input
+              ref={prescriptionInputRef}
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+              className="hidden"
+              onChange={handlePrescriptionUpload}
+            />
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-4">
-          <div className="rounded-lg border border-border bg-card p-4">
-            <HeartPulse size={20} className="text-primary mb-3" />
-            <p className="text-sm text-muted-foreground">Adherence</p>
-            <p className="text-2xl font-semibold text-foreground">{adherence.rate}%</p>
-            <Progress value={adherence.rate} className="mt-3" />
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4">
-            <CheckCircle2 size={20} className="text-emerald-600 mb-3" />
-            <p className="text-sm text-muted-foreground">Taken</p>
-            <p className="text-2xl font-semibold text-foreground">{adherence.taken}</p>
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4">
-            <Clock size={20} className="text-amber-600 mb-3" />
-            <p className="text-sm text-muted-foreground">Pending</p>
-            <p className="text-2xl font-semibold text-foreground">{adherence.pending}</p>
-          </div>
-          <div className="rounded-lg border border-border bg-card p-4">
-            <Bell size={20} className="text-red-600 mb-3" />
-            <p className="text-sm text-muted-foreground">Refill Alerts</p>
-            <p className="text-2xl font-semibold text-foreground">{refillAlerts.length}</p>
-          </div>
-        </div>
+        <div className="grid gap-6 xl:grid-cols-[20rem_1fr]">
+          <aside className="space-y-4">
+            <section className="rounded-lg border border-border bg-card p-4">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-display text-xl text-foreground">Schedules</h2>
+                  <p className="text-sm text-muted-foreground">Old and new medicine plans.</p>
+                </div>
+                <CalendarDays className="text-primary" size={20} />
+              </div>
+
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveScheduleId('new')}
+                  className={cn(
+                    'w-full rounded-lg border px-3 py-3 text-left transition-all',
+                    activeScheduleId === 'new'
+                      ? 'border-primary bg-primary text-primary-foreground shadow-medical'
+                      : 'border-dashed border-border bg-background text-foreground hover:bg-secondary/60'
+                  )}
+                >
+                  <p className="font-medium">New Schedule</p>
+                  <p className={cn('mt-1 text-xs', activeScheduleId === 'new' ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+                    Upload a fresh prescription
+                  </p>
+                </button>
+
+                {visiblePlans.map((plan, index) => {
+                  const isActive = activeScheduleId === plan.id;
+                  const fileCount = plan.prescriptionFiles?.length || (plan.sourceFileUrl ? 1 : 0);
+                  return (
+                    <button
+                      key={plan.id}
+                      type="button"
+                      onClick={() => setActiveScheduleId(plan.id)}
+                      className={cn(
+                        'w-full rounded-lg border px-3 py-3 text-left transition-all',
+                        isActive
+                          ? 'border-primary bg-primary text-primary-foreground shadow-medical'
+                          : 'border-border bg-background text-foreground hover:bg-secondary/60'
+                      )}
+                    >
+                      <p className="font-medium truncate">Schedule {visiblePlans.length - index}</p>
+                      <p className={cn('mt-1 text-xs', isActive ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+                        {new Date(plan.createdAt).toLocaleString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}
+                      </p>
+                      <p className={cn('mt-1 text-xs', isActive ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+                        {plan.medicines.length} medicines • {fileCount || 1} prescription{(fileCount || 1) === 1 ? '' : 's'}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          </aside>
+
+          <div className="space-y-6">
+            <div className="grid gap-4 md:grid-cols-4">
+              <div className="rounded-lg border border-border bg-card p-4">
+                <HeartPulse size={20} className="text-primary mb-3" />
+                <p className="text-sm text-muted-foreground">Adherence</p>
+                <p className="text-2xl font-semibold text-foreground">{adherence.rate}%</p>
+                <Progress value={adherence.rate} className="mt-3" />
+              </div>
+              <div className="rounded-lg border border-border bg-card p-4">
+                <CheckCircle2 size={20} className="text-emerald-600 mb-3" />
+                <p className="text-sm text-muted-foreground">Taken</p>
+                <p className="text-2xl font-semibold text-foreground">{adherence.taken}</p>
+              </div>
+              <div className="rounded-lg border border-border bg-card p-4">
+                <Clock size={20} className="text-amber-600 mb-3" />
+                <p className="text-sm text-muted-foreground">Pending</p>
+                <p className="text-2xl font-semibold text-foreground">{adherence.pending}</p>
+              </div>
+              <div className="rounded-lg border border-border bg-card p-4">
+                <Bell size={20} className="text-red-600 mb-3" />
+                <p className="text-sm text-muted-foreground">Refill Alerts</p>
+                <p className="text-2xl font-semibold text-foreground">{refillAlerts.length}</p>
+              </div>
+            </div>
 
         <div className="grid gap-6 xl:grid-cols-[1.35fr_0.9fr]">
           <section className="rounded-lg border border-border bg-card p-4 lg:p-5">
             <div className="flex items-center justify-between gap-3 mb-4">
               <div>
-                <h2 className="font-display text-xl text-foreground">Medicine Timeline</h2>
-                <p className="text-sm text-muted-foreground">Daily tracking with reminder escalation levels.</p>
+                <h2 className="font-display text-xl text-foreground">
+                  {activePlan ? 'Medicine Timeline' : 'Start New Schedule'}
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {activePlan ? 'Daily tracking with reminder escalation levels.' : 'Upload a prescription to create the first medicine timeline.'}
+                </p>
               </div>
               <AlarmClock className="text-primary" size={22} />
             </div>
@@ -201,8 +366,22 @@ export default function PrescriptionsPage() {
               {timeline.length === 0 && (
                 <div className="rounded-lg border border-dashed border-border p-8 text-center">
                   <FileImage className="mx-auto text-muted-foreground" size={32} />
-                  <p className="mt-3 font-medium text-foreground">No AI medication schedule yet</p>
-                  <p className="text-sm text-muted-foreground">Upload a prescription PDF, JPG, JPEG, or PNG to generate the todo timeline.</p>
+                  <p className="mt-3 font-medium text-foreground">
+                    {activePlan ? 'No medicines in this schedule yet' : 'No schedule selected'}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Upload a prescription PDF, JPG, JPEG, or PNG to generate the todo timeline.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="medical"
+                    className="mt-4"
+                    onClick={() => prescriptionInputRef.current?.click()}
+                    disabled={isUploadingPrescription}
+                  >
+                    {isUploadingPrescription ? <RefreshCcw size={16} className="animate-spin" /> : <Upload size={16} />}
+                    {isUploadingPrescription ? 'Uploading...' : 'Upload Prescription'}
+                  </Button>
                 </div>
               )}
 
@@ -218,6 +397,9 @@ export default function PrescriptionsPage() {
                       <p className="text-sm text-muted-foreground">
                         {dose.dosage} • {formatDateTime(dose.scheduledAt)} • {dose.timingLabel}
                       </p>
+                      <span className="mt-2 inline-flex rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                        {dose.prescriptionTag || `Prescription ${dose.prescriptionIndex || 1}`}
+                      </span>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -273,37 +455,71 @@ export default function PrescriptionsPage() {
               </div>
             </section>
 
-            {medicationPlans[0]?.sourceFileUrl && (
+            {prescriptionFiles.length > 0 && (
               <section className="rounded-lg border border-border bg-card p-4 lg:p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h2 className="font-display text-xl text-foreground">Uploaded Prescription</h2>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Original file stored in Cloudinary and used for OCR.
-                    </p>
-                  </div>
-                  <Button asChild variant="outline" size="sm">
-                    <a href={medicationPlans[0].sourceFileUrl} target="_blank" rel="noreferrer">
-                      <ExternalLink size={16} />
-                      Open File
-                    </a>
-                  </Button>
+                <div>
+                  <h2 className="font-display text-xl text-foreground">Uploaded Prescriptions</h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Files used by OCR for this schedule.
+                  </p>
                 </div>
-                <p className="mt-3 text-sm text-muted-foreground truncate">
-                  {medicationPlans[0].sourceFileName || medicationPlans[0].sourceFileUrl}
-                </p>
+                <div className="mt-4 space-y-3">
+                  {prescriptionFiles.map((file) => (
+                    <div key={`${file.tag}-${file.fileName}`} className="rounded-lg border border-border bg-background p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground">{file.tag}</p>
+                          <p className="mt-1 truncate text-sm text-muted-foreground">{file.fileName || file.fileUrl}</p>
+                        </div>
+                        {file.fileUrl && (
+                          <Button asChild variant="outline" size="sm">
+                            <a href={file.fileUrl} target="_blank" rel="noreferrer">
+                              <ExternalLink size={16} />
+                              Open
+                            </a>
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </section>
             )}
 
-            {medicationPlans[0]?.medicines.length > 0 && (
+            {activePlan && (
+              <section className="rounded-lg border border-dashed border-border bg-card p-4 lg:p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="font-display text-xl text-foreground">Add to Current Schedule</h2>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Upload another prescription and its medicines will be tagged as the next prescription.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => prescriptionInputRef.current?.click()}
+                    disabled={isUploadingPrescription}
+                  >
+                    {isUploadingPrescription ? <RefreshCcw size={16} className="animate-spin" /> : <Upload size={16} />}
+                    Add Prescription
+                  </Button>
+                </div>
+              </section>
+            )}
+
+            {activePlan && activePlan.medicines.length > 0 && (
               <section className="space-y-3">
                 <h2 className="font-display text-xl text-foreground">Current Medicines</h2>
-                {medicationPlans[0].medicines.map((medicine) => (
+                {activePlan.medicines.map((medicine) => (
                   <MedicineCard key={medicine._id} medicine={medicine} />
                 ))}
               </section>
             )}
           </aside>
+        </div>
+          </div>
         </div>
       </div>
 
