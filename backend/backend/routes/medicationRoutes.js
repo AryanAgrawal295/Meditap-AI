@@ -13,6 +13,14 @@ router.post(
   medicationController.createPlanFromPrescription
 );
 
+router.post(
+  "/:planId/prescription",
+  auth,
+  role("doctor"),
+  upload.single("file"),
+  medicationController.appendPrescriptionToPlan
+);
+
 router.get(
   "/:patientId",
   auth,

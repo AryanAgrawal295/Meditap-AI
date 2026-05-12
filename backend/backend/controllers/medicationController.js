@@ -27,21 +27,50 @@ function toClientPlan(plan) {
       refillReminderAt: medicine.refillReminderAt,
       stockQuantity: medicine.stockQuantity,
     }));
+  const prescriptionFiles = (plan.prescriptionFiles || []).map((file) => ({
+    index: file.index,
+    tag: file.tag || `Prescription ${file.index || 1}`,
+    fileUrl:
+      buildSignedDownloadUrl({
+        publicId: file.filePublicId,
+        format: file.fileFormat,
+        resourceType: file.fileResourceType,
+        fileName: file.fileName,
+      }) || file.fileUrl,
+    filePublicId: file.filePublicId,
+    fileName: file.fileName,
+    uploadedAt: file.uploadedAt,
+  }));
+  const sourceFileUrl =
+    buildSignedDownloadUrl({
+      publicId: plan.sourceFilePublicId,
+      format: plan.sourceFileFormat,
+      resourceType: plan.sourceFileResourceType,
+      fileName: plan.sourceFileName,
+    }) || plan.sourceFileUrl;
+  const normalizedPrescriptionFiles =
+    prescriptionFiles.length > 0 || !sourceFileUrl
+      ? prescriptionFiles
+      : [
+          {
+            index: 1,
+            tag: "Prescription 1",
+            fileUrl: sourceFileUrl,
+            filePublicId: plan.sourceFilePublicId,
+            fileName: plan.sourceFileName,
+            uploadedAt: plan.createdAt,
+          },
+        ];
 
   return {
     id: plan._id,
     patient: plan.patient,
     source: plan.source,
     prescriptionText: plan.prescriptionText,
-    sourceFileUrl:
-      buildSignedDownloadUrl({
-        publicId: plan.sourceFilePublicId,
-        format: plan.sourceFileFormat,
-        resourceType: plan.sourceFileResourceType,
-        fileName: plan.sourceFileName,
-      }) || plan.sourceFileUrl,
+    sourceFileUrl,
     sourceFilePublicId: plan.sourceFilePublicId,
     sourceFileName: plan.sourceFileName,
+    prescriptionFiles: normalizedPrescriptionFiles,
     medicines: plan.medicines,
     agentTrace: plan.agentTrace,
     adherence,
@@ -53,6 +82,43 @@ function toClientPlan(plan) {
 
 function canAccessPatient(req, patientId) {
   return !req.user?.isPatientSession || String(req.user.patientId) === String(patientId);
+}
+
+async function extractPrescriptionSchedule(file, prescriptionIndex) {
+  let uploadedFile = null;
+
+  try {
+    uploadedFile = await uploadBuffer(file.buffer, {
+      folder: `${process.env.CLOUDINARY_FOLDER || "meditap"}/prescriptions`,
+      public_id: file.originalname
+        ? file.originalname.replace(/\.[^/.]+$/, "")
+        : undefined,
+    });
+  } catch (uploadError) {
+    console.warn("Prescription file storage skipped:", uploadError.message);
+  }
+
+  const rawText = await extractText(file.buffer);
+  const cleanedText = cleanOCRText(rawText);
+  const structuredMedicines = await extractStructuredMedicines(cleanedText);
+  const tag = `Prescription ${prescriptionIndex}`;
+  const medicines = buildDoseTimeline(structuredMedicines).map((medicine) => ({
+    ...medicine,
+    prescriptionIndex,
+    prescriptionTag: tag,
+    sourceFileName: file.originalname,
+  }));
+  const prescriptionFile = {
+    index: prescriptionIndex,
+    tag,
+    fileUrl: uploadedFile?.secure_url || null,
+    filePublicId: uploadedFile?.public_id || null,
+    fileName: file.originalname,
+    fileResourceType: uploadedFile?.resource_type || null,
+    fileFormat: uploadedFile?.format || file.originalname?.split(".").pop() || null,
+  };
+
+  return { rawText, cleanedText, structuredMedicines, medicines, prescriptionFile };
 }
 
 exports.createPlanFromPrescription = async (req, res) => {
@@ -71,34 +137,20 @@ exports.createPlanFromPrescription = async (req, res) => {
       return res.status(400).json({ message: "Prescription image is required" });
     }
 
-    let uploadedFile = null;
-
-    try {
-      uploadedFile = await uploadBuffer(req.file.buffer, {
-        folder: `${process.env.CLOUDINARY_FOLDER || "meditap"}/prescriptions`,
-        public_id: req.file.originalname
-          ? req.file.originalname.replace(/\.[^/.]+$/, "")
-          : undefined,
-      });
-    } catch (uploadError) {
-      console.warn("Prescription file storage skipped:", uploadError.message);
-    }
-
-    const rawText = await extractText(req.file.buffer);
-    const cleanedText = cleanOCRText(rawText);
-    const structuredMedicines = await extractStructuredMedicines(cleanedText);
-    const medicines = buildDoseTimeline(structuredMedicines);
+    const { rawText, cleanedText, structuredMedicines, medicines, prescriptionFile } =
+      await extractPrescriptionSchedule(req.file, 1);
 
     const plan = await MedicationPlan.create({
       patient: patientId,
       createdBy: req.user?._id,
       prescriptionText: cleanedText,
       source: "ocr",
-      sourceFileUrl: uploadedFile?.secure_url || null,
-      sourceFilePublicId: uploadedFile?.public_id || null,
+      sourceFileUrl: prescriptionFile.fileUrl,
+      sourceFilePublicId: prescriptionFile.filePublicId,
       sourceFileName: req.file.originalname,
-      sourceFileResourceType: uploadedFile?.resource_type || null,
-      sourceFileFormat: uploadedFile?.format || req.file.originalname?.split(".").pop() || null,
+      sourceFileResourceType: prescriptionFile.fileResourceType,
+      sourceFileFormat: prescriptionFile.fileFormat,
+      prescriptionFiles: [prescriptionFile],
       medicines,
       agentTrace: [
         {
@@ -132,6 +184,69 @@ exports.createPlanFromPrescription = async (req, res) => {
     });
   } catch (error) {
     console.error("Create medication plan error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.appendPrescriptionToPlan = async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const plan = await MedicationPlan.findById(planId);
+
+    if (!plan) {
+      return res.status(404).json({ message: "Medication plan not found" });
+    }
+
+    if (!canAccessPatient(req, plan.patient)) {
+      return res.status(403).json({ message: "Access denied for this patient" });
+    }
+
+    if (!req.file?.buffer) {
+      return res.status(400).json({ message: "Prescription image is required" });
+    }
+
+    if ((!plan.prescriptionFiles || plan.prescriptionFiles.length === 0) && (plan.sourceFileUrl || plan.sourceFileName)) {
+      plan.prescriptionFiles = [
+        {
+          index: 1,
+          tag: "Prescription 1",
+          fileUrl: plan.sourceFileUrl,
+          filePublicId: plan.sourceFilePublicId,
+          fileName: plan.sourceFileName,
+          fileResourceType: plan.sourceFileResourceType,
+          fileFormat: plan.sourceFileFormat,
+          uploadedAt: plan.createdAt,
+        },
+      ];
+    }
+
+    const existingIndexes = [
+      ...(plan.prescriptionFiles || []).map((file) => Number(file.index) || 0),
+      ...(plan.medicines || []).map((medicine) => Number(medicine.prescriptionIndex) || 0),
+    ];
+    const nextIndex = Math.max(1, ...existingIndexes) + 1;
+    const { rawText, cleanedText, structuredMedicines, medicines, prescriptionFile } =
+      await extractPrescriptionSchedule(req.file, nextIndex);
+
+    plan.prescriptionText = [plan.prescriptionText, cleanedText].filter(Boolean).join("\n\n---\n\n");
+    plan.prescriptionFiles.push(prescriptionFile);
+    plan.medicines.push(...medicines);
+    plan.agentTrace.push({
+      agent: "Medicine scheduling agent",
+      status: "completed",
+      summary: `Added ${medicines.length} medicine(s) from ${prescriptionFile.tag}.`,
+    });
+
+    await plan.save();
+
+    res.status(200).json({
+      rawText,
+      cleanedText,
+      structuredMedicines,
+      plan: toClientPlan(plan),
+    });
+  } catch (error) {
+    console.error("Append prescription error:", error);
     res.status(500).json({ message: error.message });
   }
 };

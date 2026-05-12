@@ -83,8 +83,20 @@ export interface MedicationMedicine {
   frequencyPerDay: number;
   quantityPerDose: number;
   stockQuantity: number;
+  prescriptionIndex?: number;
+  prescriptionTag?: string;
+  sourceFileName?: string;
   refillReminderAt?: string;
   doses: MedicationDose[];
+}
+
+export interface MedicationPrescriptionFile {
+  index: number;
+  tag: string;
+  fileUrl?: string;
+  filePublicId?: string;
+  fileName?: string;
+  uploadedAt?: string;
 }
 
 export interface MedicationPlan {
@@ -95,6 +107,7 @@ export interface MedicationPlan {
   sourceFileUrl?: string;
   sourceFilePublicId?: string;
   sourceFileName?: string;
+  prescriptionFiles?: MedicationPrescriptionFile[];
   medicines: MedicationMedicine[];
   agentTrace: {
     agent: string;
