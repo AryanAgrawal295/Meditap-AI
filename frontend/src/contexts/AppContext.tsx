@@ -23,6 +23,7 @@ type BackendMedicalRecord = {
   title?: string | null;
   hospital?: string | null;
   department?: string | null;
+  doctorName?: string | null;
   recordType?: MedicalRecord['recordType'] | null;
   severity?: MedicalRecord['severity'] | null;
   tags?: string[] | null;
@@ -79,6 +80,7 @@ interface AppContextType {
     title: string;
     date: string;
     diagnosis: string;
+    doctorName?: string;
     hospital: string;
     department?: string;
     description: string;
@@ -486,6 +488,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     title: string;
     date: string;
     diagnosis: string;
+    doctorName?: string;
     hospital: string;
     department?: string;
     description: string;
@@ -507,6 +510,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         title: record.title,
         visitDate: record.date,
         diagnosis: record.diagnosis,
+        doctorName: record.doctorName,
         hospital: record.hospital,
         department: record.department,
         description: record.description,

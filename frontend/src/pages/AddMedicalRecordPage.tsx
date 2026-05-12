@@ -157,6 +157,7 @@ export default function AddMedicalRecordPage() {
       title: formData.title,
       date: formData.date,
       diagnosis: formData.diagnosis,
+      doctorName: formData.doctor.trim() || undefined,
       hospital: formData.hospital,
       department: formData.department || undefined,
       description: formData.description,

@@ -31,6 +31,7 @@ const medicalRecordSchema = new mongoose.Schema(
     labReports: [String],
     notes: String,
     title: String,
+    doctorName: String,
     hospital: String,
     department: String,
     description: String,
