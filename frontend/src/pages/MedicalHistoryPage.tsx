@@ -4,6 +4,13 @@ import { useNavigate } from 'react-router-dom';
 import { DashboardLayout } from '@/layouts/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useApp } from '@/contexts/AppContext';
 import { cn } from '@/lib/utils';
 import { MedicalHistoryFilters, FilterState, initialFilterState } from '@/components/MedicalHistoryFilters';
@@ -43,6 +50,10 @@ export default function MedicalHistoryPage() {
   );
   const availableDepartments = useMemo(() => 
     [...new Set(medicalRecords.map(r => r.department).filter(Boolean) as string[])], [medicalRecords]
+  );
+  const selectedRecordData = useMemo(
+    () => medicalRecords.find((record) => record.id === selectedRecord) ?? null,
+    [medicalRecords, selectedRecord]
   );
 
   // Apply filters
@@ -164,6 +175,106 @@ export default function MedicalHistoryPage() {
         </div>
       ) : (
         <>
+          <Dialog open={Boolean(selectedRecordData)} onOpenChange={(open) => !open && setSelectedRecord(null)}>
+            <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+              {selectedRecordData && (
+                <div className="space-y-5">
+                  <DialogHeader className="space-y-3 text-left">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Calendar size={14} />
+                          {new Date(selectedRecordData.date).toLocaleDateString('en-US', {
+                            weekday: 'short',
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                          })}
+                        </div>
+                        <DialogTitle className="font-display text-2xl text-foreground">
+                          {selectedRecordData.title}
+                        </DialogTitle>
+                        <DialogDescription className="text-base font-medium text-primary">
+                          {selectedRecordData.diagnosis}
+                        </DialogDescription>
+                      </div>
+                      <Badge className={cn('w-fit text-xs px-2 py-1', severityColors[selectedRecordData.severity])}>
+                        {selectedRecordData.severity}
+                      </Badge>
+                    </div>
+                  </DialogHeader>
+
+                  <div className="rounded-xl border border-border bg-secondary/30 p-4">
+                    <p className="whitespace-pre-wrap break-words text-sm leading-7 text-foreground">
+                      {selectedRecordData.description}
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="flex items-start gap-2 text-sm">
+                      <Stethoscope size={16} className="mt-0.5 text-primary" />
+                      <div>
+                        <p className="font-medium text-foreground">{selectedRecordData.doctor}</p>
+                        <p className="text-muted-foreground">Doctor</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2 text-sm">
+                      <MapPin size={16} className="mt-0.5 text-primary" />
+                      <div>
+                        <p className="font-medium text-foreground">{selectedRecordData.hospital}</p>
+                        <p className="text-muted-foreground">Hospital</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {selectedRecordData.department && (
+                    <div className="text-sm">
+                      <p className="font-medium text-foreground">{selectedRecordData.department}</p>
+                      <p className="text-muted-foreground">Department</p>
+                    </div>
+                  )}
+
+                  {selectedRecordData.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {selectedRecordData.tags.map(tag => (
+                        <Badge key={tag} variant="outline" className="text-xs">
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+
+                  {selectedRecordData.attachments && selectedRecordData.attachments.length > 0 && (
+                    <div className="rounded-lg border border-border bg-secondary/40 p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Paperclip size={14} className="text-primary" />
+                        <span className="text-sm font-medium text-foreground">Uploaded Files</span>
+                      </div>
+                      <div className="space-y-2">
+                        {selectedRecordData.attachments.map((attachment, attachmentIndex) => (
+                          <a
+                            key={`${selectedRecordData.id}-attachment-${attachmentIndex}`}
+                            href={attachment.accessUrl || '#'}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-disabled={!attachment.accessUrl}
+                            className="flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 text-sm text-primary hover:bg-accent/40"
+                          >
+                            <span className="truncate">
+                              {attachment.fileName || `Attachment ${attachmentIndex + 1}`}
+                            </span>
+                            <ExternalLink size={14} className="shrink-0" />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+
           {/* Vertical Timeline */}
           <div className="relative pb-20">
             {/* Timeline line */}
@@ -191,7 +302,7 @@ export default function MedicalHistoryPage() {
 
                     {/* Record card */}
                     <button
-                      onClick={() => setSelectedRecord(isSelected ? null : record.id)}
+                      onClick={() => setSelectedRecord(record.id)}
                       className={cn(
                         'medical-card w-full text-left transition-all',
                         isSelected && 'ring-2 ring-primary'
@@ -214,59 +325,21 @@ export default function MedicalHistoryPage() {
 
                       <h3 className="font-display text-lg text-foreground mb-1">{record.title}</h3>
                       <p className="text-sm text-primary font-medium mb-2">{record.diagnosis}</p>
-
-                      {isSelected && (
-                        <div className="mt-4 pt-4 border-t border-border space-y-3 animate-fade-in">
-                          <p className="text-sm text-muted-foreground">{record.description}</p>
-                          
-                          <div className="flex items-center gap-2 text-sm">
-                            <Stethoscope size={14} className="text-primary" />
-                            <span className="text-foreground">{record.doctor}</span>
-                          </div>
-                          
-                          <div className="flex items-center gap-2 text-sm">
-                            <MapPin size={14} className="text-primary" />
-                            <span className="text-muted-foreground">{record.hospital}</span>
-                          </div>
-
-                          {record.tags.length > 0 && (
-                            <div className="flex flex-wrap gap-1">
-                              {record.tags.map(tag => (
-                                <Badge key={tag} variant="outline" className="text-xs">
-                                  {tag}
-                                </Badge>
-                              ))}
-                            </div>
-                          )}
-
-                          {record.attachments && record.attachments.length > 0 && (
-                            <div className="rounded-lg border border-border bg-secondary/40 p-3">
-                              <div className="flex items-center gap-2 mb-2">
-                                <Paperclip size={14} className="text-primary" />
-                                <span className="text-sm font-medium text-foreground">Uploaded Files</span>
-                              </div>
-                              <div className="space-y-2">
-                                {record.attachments.map((attachment, attachmentIndex) => (
-                                  <a
-                                    key={`${record.id}-attachment-${attachmentIndex}`}
-                                    href={attachment.accessUrl || '#'}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    onClick={(event) => event.stopPropagation()}
-                                    aria-disabled={!attachment.accessUrl}
-                                    className="flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 text-sm text-primary hover:bg-accent/40"
-                                  >
-                                    <span className="truncate">
-                                      {attachment.fileName || `Attachment ${attachmentIndex + 1}`}
-                                    </span>
-                                    <ExternalLink size={14} className="shrink-0" />
-                                  </a>
-                                ))}
-                              </div>
-                            </div>
-                          )}
+                      <p className="overflow-hidden text-sm text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+                        {record.description}
+                      </p>
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+                        <div className="flex flex-wrap gap-1">
+                          {record.tags.slice(0, 3).map(tag => (
+                            <Badge key={tag} variant="outline" className="text-xs">
+                              {tag}
+                            </Badge>
+                          ))}
                         </div>
-                      )}
+                        <span className="text-xs font-medium text-primary">
+                          Click to view full details
+                        </span>
+                      </div>
                     </button>
                   </div>
                 );

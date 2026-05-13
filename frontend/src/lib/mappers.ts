@@ -30,6 +30,7 @@ type BackendMedicalRecord = {
   title?: string | null;
   hospital?: string | null;
   department?: string | null;
+  doctorName?: string | null;
   recordType?: MedicalRecord['recordType'] | null;
   severity?: MedicalRecord['severity'] | null;
   tags?: string[] | null;
@@ -97,10 +98,11 @@ export function mapBackendPatient(patient: BackendPatient): Patient {
 export function mapBackendMedicalRecord(record: BackendMedicalRecord): MedicalRecord {
   const diagnosis = record.diagnosis || 'No diagnosis recorded';
   const description = record.description || record.notes || diagnosis;
-  const doctorName =
+  const uploaderDoctorName =
     typeof record.doctor === 'string'
       ? record.doctor
-      : record.doctor?.name || 'Unknown Doctor';
+      : record.doctor?.name || '';
+  const doctorName = record.doctorName?.trim() || uploaderDoctorName || 'Unknown Doctor';
   const tags = (record.tags || []).filter((tag): tag is MedicalRecord['tags'][number] =>
     ['chronic', 'acute', 'allergy-related', 'injury', 'infection', 'lifestyle'].includes(tag)
   );
@@ -145,6 +147,7 @@ export function mapBackendMedicalRecord(record: BackendMedicalRecord): MedicalRe
     title: record.title || diagnosis,
     diagnosis,
     doctor: doctorName,
+    doctorName: record.doctorName?.trim() || undefined,
     hospital: record.hospital || 'Unknown Hospital',
     department: record.department || undefined,
     description,
@@ -159,10 +162,11 @@ export function derivePrescriptions(records: BackendMedicalRecord[]): Prescripti
   return records
     .filter((record) => Array.isArray(record.prescriptions) && record.prescriptions.length > 0)
     .map((record) => {
-      const doctorName =
+      const uploaderDoctorName =
         typeof record.doctor === 'string'
           ? record.doctor
-          : record.doctor?.name || 'Unknown Doctor';
+          : record.doctor?.name || '';
+      const doctorName = record.doctorName?.trim() || uploaderDoctorName || 'Unknown Doctor';
 
       return {
         id: `rx-${record._id}`,

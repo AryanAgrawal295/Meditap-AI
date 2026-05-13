@@ -36,6 +36,7 @@ export interface MedicalRecord {
   title: string;
   diagnosis: string;
   doctor: string;
+  doctorName?: string;
   hospital: string;
   department?: string;
   description: string;

@@ -42,9 +42,10 @@ function formatMedicalHistory(records) {
         ? record.tags.join(", ")
         : "None";
       const doctorName =
-        typeof record.doctor === "string"
+        String(record.doctorName || "").trim() ||
+        (typeof record.doctor === "string"
           ? record.doctor
-          : record.doctor?.name || "Unknown";
+          : record.doctor?.name || "Unknown");
 
       return [
         `Record ${index + 1}`,
