@@ -5,7 +5,25 @@ import {
   setStoredTokens,
 } from '@/lib/storage';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3005/api';
+const DEFAULT_API_BASE_URL = 'https://meditap-ai.onrender.com/api';
+
+function resolveApiBaseUrl() {
+  const rawValue = import.meta.env.VITE_API_BASE_URL;
+
+  if (typeof rawValue !== 'string') {
+    return DEFAULT_API_BASE_URL;
+  }
+
+  const normalizedValue = rawValue.trim().replace(/^['"]|['"]$/g, '').replace(/\/+$/, '');
+
+  if (!normalizedValue) {
+    return DEFAULT_API_BASE_URL;
+  }
+
+  return normalizedValue.endsWith('/api') ? normalizedValue : `${normalizedValue}/api`;
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 type RequestOptions = {
   method?: string;
