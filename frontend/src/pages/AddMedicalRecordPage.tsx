@@ -93,6 +93,45 @@ function keepShortText(value?: string) {
   return normalized.length > 160 ? normalized.slice(0, 160).trim() : normalized;
 }
 
+function toDateInputValue(value?: string) {
+  const text = normalizeOCRValue(value || '');
+  if (!text) return '';
+
+  const isoMatch = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (isoMatch) {
+    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  }
+
+  const numericMatch = text.match(/\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})\b/);
+  if (numericMatch) {
+    const first = Number(numericMatch[1]);
+    const second = Number(numericMatch[2]);
+    const year = numericMatch[3].length === 2 ? `20${numericMatch[3]}` : numericMatch[3];
+    const day = first > 12 ? first : second > 12 ? second : first;
+    const month = first > 12 ? second : second > 12 ? first : second;
+
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  const monthMatch = text.match(
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b/i,
+  );
+  if (monthMatch) {
+    const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    const month = monthNames.findIndex((name) => monthMatch[1].toLowerCase().startsWith(name)) + 1;
+    const day = Number(monthMatch[2]);
+    const year = monthMatch[3] || String(new Date().getFullYear());
+
+    if (month >= 1 && day >= 1 && day <= 31) {
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  return '';
+}
+
 export default function AddMedicalRecordPage() {
   const navigate = useNavigate();
   const { addMedicalRecord, processPrescriptionOCR, uploadMedicalReport, uploadPrescriptionForSchedule } = useApp();
@@ -244,7 +283,10 @@ export default function AddMedicalRecordPage() {
       const diagnosisText = keepShortText(ocrResult.recordSuggestions?.diagnosis) || cleanedConditions.join(', ');
       const suggestedTitle = keepShortText(ocrResult.recordSuggestions?.title);
       const suggestedDescription = keepShortText(ocrResult.recordSuggestions?.description);
-      const suggestedDate = ocrResult.recordSuggestions?.visitDate || '';
+      const suggestedDate =
+        toDateInputValue(ocrResult.recordSuggestions?.visitDate) ||
+        toDateInputValue(ocrResult.rawText) ||
+        toDateInputValue(ocrResult.cleanedText);
       const suggestedDoctor = keepShortText(ocrResult.recordSuggestions?.doctorName);
       const suggestedDepartment = keepShortText(ocrResult.recordSuggestions?.department);
       const suggestedHospital = keepShortText(ocrResult.recordSuggestions?.hospital);

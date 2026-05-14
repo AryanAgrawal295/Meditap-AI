@@ -16,6 +16,7 @@ interface PillDetectorProps {
   scheduledTime: string;
   onIntakeConfirmed: (payload: IntakeConfirmedPayload) => void;
   onCancel?: () => void;
+  autoStart?: boolean;
 }
 
 type Phase = "idle" | "detecting" | "holding" | "confirmed" | "error";
@@ -62,6 +63,7 @@ export default function PillDetector({
   scheduledTime,
   onIntakeConfirmed,
   onCancel,
+  autoStart = false,
 }: PillDetectorProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -75,6 +77,7 @@ export default function PillDetector({
   const lastNearMouthAtRef = useRef<number | null>(null);
   const mouthEvidenceAtRef = useRef<number | null>(null);
   const releaseAtRef = useRef<number | null>(null);
+  const hasAutoStartedRef = useRef(false);
   const pathStartRef = useRef<Landmark | null>(null);
   const pathStartMouthDistanceRef = useRef<number | null>(null);
   const pathMaxTravelRef = useRef(0);
@@ -93,6 +96,15 @@ export default function PillDetector({
   const MIN_MOUTH_APPROACH = 0.08;
 
   useEffect(() => () => stopCamera(), []);
+
+  useEffect(() => {
+    if (!autoStart || hasAutoStartedRef.current) {
+      return;
+    }
+
+    hasAutoStartedRef.current = true;
+    void startCamera();
+  }, [autoStart]);
 
   async function startCamera() {
     try {

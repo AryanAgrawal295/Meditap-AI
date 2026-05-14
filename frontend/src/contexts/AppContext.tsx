@@ -133,6 +133,22 @@ interface AppContextType {
     doseId: string;
     status: 'pending' | 'taken' | 'missed';
   }) => Promise<void>;
+  updateDoseSchedule: (payload: {
+    planId: string;
+    medicineId: string;
+    doseId: string;
+    scheduledAt: string;
+  }) => Promise<void>;
+  updateMedicine: (payload: {
+    planId: string;
+    medicineId: string;
+    name: string;
+  }) => Promise<void>;
+  updateMedicationPlanStatus: (payload: {
+    planId: string;
+    status: MedicationPlan['status'];
+  }) => Promise<void>;
+  deleteMedicationPlan: (planId: string) => Promise<void>;
   updatePatientProfile: (payload: {
     name: string;
     dateOfBirth: string;
@@ -668,6 +684,72 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setMedicationPlans((prev) => prev.map((item) => (item.id === plan.id ? plan : item)));
   }, []);
 
+  const updateDoseSchedule = useCallback(async (payload: {
+    planId: string;
+    medicineId: string;
+    doseId: string;
+    scheduledAt: string;
+  }) => {
+    const plan = await apiRequest<MedicationPlan>(
+      `/medication/${payload.planId}/medicines/${payload.medicineId}/doses/${payload.doseId}/schedule`,
+      {
+        method: 'PATCH',
+        auth: true,
+        body: {
+          scheduledAt: payload.scheduledAt,
+        },
+      }
+    );
+
+    setMedicationPlans((prev) => prev.map((item) => (item.id === plan.id ? plan : item)));
+  }, []);
+
+  const updateMedicine = useCallback(async (payload: {
+    planId: string;
+    medicineId: string;
+    name: string;
+  }) => {
+    const plan = await apiRequest<MedicationPlan>(
+      `/medication/${payload.planId}/medicines/${payload.medicineId}`,
+      {
+        method: 'PATCH',
+        auth: true,
+        body: {
+          name: payload.name,
+        },
+      }
+    );
+
+    setMedicationPlans((prev) => prev.map((item) => (item.id === plan.id ? plan : item)));
+  }, []);
+
+  const updateMedicationPlanStatus = useCallback(async (payload: {
+    planId: string;
+    status: MedicationPlan['status'];
+  }) => {
+    const plan = await apiRequest<MedicationPlan>(
+      `/medication/plans/${payload.planId}/status`,
+      {
+        method: 'PATCH',
+        auth: true,
+        body: {
+          status: payload.status,
+        },
+      }
+    );
+
+    setMedicationPlans((prev) => prev.map((item) => (item.id === plan.id ? plan : item)));
+  }, []);
+
+  const deleteMedicationPlan = useCallback(async (planId: string) => {
+    await apiRequest<void>(`/medication/plans/${planId}`, {
+      method: 'DELETE',
+      auth: true,
+    });
+
+    setMedicationPlans((prev) => prev.filter((plan) => plan.id !== planId));
+  }, []);
+
   const updatePatientProfile = useCallback(async (payload: {
     name: string;
     dateOfBirth: string;
@@ -742,6 +824,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     uploadPrescriptionForSchedule,
     verifyDoseWithAI,
     updateDoseStatus,
+    updateDoseSchedule,
+    updateMedicine,
+    updateMedicationPlanStatus,
+    deleteMedicationPlan,
     updatePatientProfile,
     askAssistant,
     logout,
@@ -750,6 +836,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     askAssistant,
     authUser,
     currentPatientId,
+    deleteMedicationPlan,
     isAuthenticated,
     isInitializing,
     isLoadingPatient,
@@ -768,6 +855,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRole,
     updatePatientProfile,
     updateDoseStatus,
+    updateDoseSchedule,
+    updateMedicine,
+    updateMedicationPlanStatus,
     uploadMedicalReport,
     processPrescriptionOCR,
     uploadPrescriptionForSchedule,

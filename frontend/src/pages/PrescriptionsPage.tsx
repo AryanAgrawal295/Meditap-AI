@@ -4,8 +4,10 @@ import {
   Bell,
   CalendarDays,
   Camera,
+  Check,
   CheckCircle2,
   Clock,
+  Edit3,
   FileImage,
   HeartPulse,
   Pill,
@@ -16,6 +18,14 @@ import {
   XCircle,
   ExternalLink,
   ChevronDown,
+  MoreVertical,
+  Pause,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+  Play,
+  Trash2,
 } from "lucide-react";
 import { format, startOfDay, isSameDay } from "date-fns";
 import { DashboardLayout } from "@/layouts/DashboardLayout";
@@ -30,6 +40,22 @@ import {
 } from "@/types/patient";
 import { cn } from "@/lib/utils";
 import PillDetector from "@/components/PillDetector";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 type TimelineDose = MedicationDose & {
   planId: string;
@@ -53,6 +79,22 @@ function formatDateTime(value: string) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function getTimeInputValue(value: string) {
+  const date = new Date(value);
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+
+  return `${hours}:${minutes}`;
+}
+
+function mergeDateWithTime(value: string, time: string) {
+  const [hours, minutes] = time.split(":").map(Number);
+  const nextDate = new Date(value);
+  nextDate.setHours(hours, minutes, 0, 0);
+
+  return nextDate.toISOString();
 }
 
 function getDoseTone(status: MedicationDose["status"]) {
@@ -150,7 +192,13 @@ function getUpcomingDoses(plans: MedicationPlan[]): TimelineDose[] {
   return allDoses;
 }
 
-function MedicineCard({ medicine }: { medicine: MedicationMedicine }) {
+function MedicineCard({
+  medicine,
+  onEditName,
+}: {
+  medicine: MedicationMedicine;
+  onEditName: (medicine: MedicationMedicine) => void;
+}) {
   const completed = medicine.doses.filter(
     (dose) => dose.status === "taken",
   ).length;
@@ -169,7 +217,12 @@ function MedicineCard({ medicine }: { medicine: MedicationMedicine }) {
             {medicine.dosage} • {medicine.frequency} • {medicine.duration}
           </p>
         </div>
-        <Pill className="text-primary shrink-0" size={20} />
+        <div className="flex items-center gap-1 shrink-0">
+          <Button variant="ghost" size="icon" onClick={() => onEditName(medicine)}>
+            <Edit3 size={16} />
+          </Button>
+          <Pill className="text-primary" size={20} />
+        </div>
       </div>
       <span className="mt-3 inline-flex rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
         {medicine.prescriptionTag ||
@@ -205,11 +258,19 @@ function MedicineCard({ medicine }: { medicine: MedicationMedicine }) {
 function DayCard({
   dayGroup,
   onDoseClick,
-  onMissedClick,
+  onEditTime,
+  onMarkMissed,
+  onMarkTaken,
+  isPaused,
+  updatingDoseId,
 }: {
   dayGroup: DayGroup;
   onDoseClick: (dose: TimelineDose) => void;
-  onMissedClick: (dose: TimelineDose) => void;
+  onEditTime: (dose: TimelineDose) => void;
+  onMarkMissed: (dose: TimelineDose) => void;
+  onMarkTaken: (dose: TimelineDose) => void;
+  isPaused: boolean;
+  updatingDoseId: string | null;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const takenCount = dayGroup.doses.filter((d) => d.status === "taken").length;
@@ -270,63 +331,102 @@ function DayCard({
       {isOpen && (
         <div className="border-t border-border bg-background/50 animate-accordion-down">
           <div className="p-4 space-y-2">
-            {dayGroup.doses.map((dose) => (
-              <div
-                key={`${dose.planId}-${dose._id}`}
-                className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between hover:bg-secondary/30 transition-colors"
-              >
-                <div className="flex items-start gap-3 min-w-0 flex-1">
-                  <span
-                    className={cn(
-                      "mt-1 h-3 w-3 rounded-full border shrink-0",
-                      getDoseTone(dose.status),
-                    )}
-                  />
-                  <div className="min-w-0">
-                    <p className="font-medium text-foreground truncate">
-                      {dose.medicineName}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {dose.dosage} at{" "}
-                      {format(new Date(dose.scheduledAt), "hh:mm a")}
-                    </p>
-                    <span className="mt-1 inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                      {dose.prescriptionTag ||
-                        `Prescription ${dose.prescriptionIndex || 1}`}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className={cn(
-                      "rounded-full border px-2.5 py-1 text-xs font-medium capitalize",
-                      getDoseTone(dose.status),
-                    )}
+            {dayGroup.doses.map((dose) => {
+              const doseKey = `${dose.planId}-${dose.medicineId}-${dose._id}`;
+              const isUpdatingDose = updatingDoseId === doseKey;
+
+              return (
+                  <div
+                    key={`${dose.planId}-${dose._id}`}
+                    className="grid gap-3 rounded-lg border border-border bg-card p-3 transition-colors hover:bg-secondary/30 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start"
                   >
-                    {dose.status}
-                  </span>
-                  {dose.status === "pending" && (
-                    <>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => onDoseClick(dose)}
+                    <div className="flex min-w-0 items-start gap-3">
+                      <span
+                        className={cn(
+                          "mt-1 h-3 w-3 rounded-full border shrink-0",
+                          getDoseTone(dose.status),
+                        )}
+                      />
+                      <div className="min-w-0">
+                        <p className="font-medium text-foreground truncate">
+                          {dose.medicineName}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {dose.dosage} at{" "}
+                          {format(new Date(dose.scheduledAt), "hh:mm a")}
+                        </p>
+                        <span className="mt-1 inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                          {dose.prescriptionTag ||
+                            `Prescription ${dose.prescriptionIndex || 1}`}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 lg:max-w-[18rem] lg:justify-end">
+                      <span
+                        className={cn(
+                          "rounded-full border px-2.5 py-1 text-xs font-medium capitalize",
+                          getDoseTone(dose.status),
+                        )}
                       >
-                        <Camera size={14} />
-                        Verify
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onMissedClick(dose)}
-                      >
-                        Missed
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </div>
-            ))}
+                        {dose.status}
+                      </span>
+                      {dose.status === "pending" && (
+                        <>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => onDoseClick(dose)}
+                            disabled={isPaused || isUpdatingDose}
+                          >
+                            <Camera size={14} />
+                            Verify
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-emerald-600 text-emerald-700 hover:bg-emerald-600 hover:text-white"
+                            onClick={() => onMarkTaken(dose)}
+                            disabled={isPaused || isUpdatingDose}
+                          >
+                            {isUpdatingDose ? (
+                              <RefreshCcw size={14} className="animate-spin" />
+                            ) : (
+                              <Check size={14} />
+                            )}
+                            Done
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-red-600 text-red-700 hover:bg-red-600 hover:text-white"
+                            onClick={() => onMarkMissed(dose)}
+                            disabled={isPaused || isUpdatingDose}
+                          >
+                            <XCircle size={14} />
+                            Missed
+                          </Button>
+                        </>
+                      )}
+	                      {["pending", "missed"].includes(dose.status) && (
+	                        <Button
+	                          variant="outline"
+	                          size="sm"
+	                          onClick={() => onEditTime(dose)}
+	                          disabled={isPaused || isUpdatingDose}
+	                        >
+	                          <Clock size={14} />
+	                          Reschedule
+	                        </Button>
+	                      )}
+                      {isPaused && dose.status === "pending" && (
+                        <span className="text-xs font-medium text-muted-foreground">
+                          Paused
+                        </span>
+                      )}
+                    </div>
+                  </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -340,18 +440,34 @@ export default function PrescriptionsPage() {
     uploadPrescriptionForSchedule,
     verifyDoseWithAI,
     updateDoseStatus,
+    updateDoseSchedule,
+    updateMedicine,
+    updateMedicationPlanStatus,
+    deleteMedicationPlan,
   } = useApp();
   const { toast } = useToast();
   const [activeDose, setActiveDose] = useState<TimelineDose | null>(null);
+  const [editingDose, setEditingDose] = useState<TimelineDose | null>(null);
+  const [scheduleTimeValue, setScheduleTimeValue] = useState("");
+  const [isUpdatingSchedule, setIsUpdatingSchedule] = useState(false);
+  const [editingMedicine, setEditingMedicine] = useState<MedicationMedicine | null>(null);
+  const [medicineNameValue, setMedicineNameValue] = useState("");
+  const [isUpdatingMedicine, setIsUpdatingMedicine] = useState(false);
   const [isUploadingPrescription, setIsUploadingPrescription] = useState(false);
+  const [isChangingPlanStatus, setIsChangingPlanStatus] = useState(false);
+  const [isDeletingPlan, setIsDeletingPlan] = useState(false);
+  const [updatingDoseId, setUpdatingDoseId] = useState<string | null>(null);
   const [activeScheduleId, setActiveScheduleId] = useState<string>("");
   const [showMedicinesDrawer, setShowMedicinesDrawer] = useState(false);
+  const [isSchedulesSidebarMinimized, setIsSchedulesSidebarMinimized] = useState(false);
+  const [isDetailsSidebarMinimized, setIsDetailsSidebarMinimized] = useState(false);
   const prescriptionInputRef = useRef<HTMLInputElement>(null);
 
   const activePlan = useMemo(
     () => medicationPlans.find((plan) => plan.id === activeScheduleId) || null,
     [activeScheduleId, medicationPlans],
   );
+  const isActivePlanPaused = activePlan?.status === "paused";
   const visiblePlans = useMemo(
     () =>
       [...medicationPlans].sort(
@@ -431,6 +547,71 @@ export default function PrescriptionsPage() {
     }
   };
 
+  const handleToggleScheduleStatus = async (plan: MedicationPlan | null = activePlan) => {
+    if (!plan) return;
+
+    const nextStatus = plan.status === "paused" ? "active" : "paused";
+
+    try {
+      setIsChangingPlanStatus(true);
+      await updateMedicationPlanStatus({
+        planId: plan.id,
+        status: nextStatus,
+      });
+      toast({
+        title: nextStatus === "active" ? "Schedule started" : "Schedule paused",
+        description:
+          nextStatus === "active"
+            ? "Dose tracking is available again."
+            : "Dose tracking is paused until you start this schedule.",
+      });
+    } catch (error) {
+      toast({
+        title: "Could not update schedule",
+        description:
+          error instanceof Error
+            ? error.message
+            : "The schedule status could not be changed.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsChangingPlanStatus(false);
+    }
+  };
+
+  const handleDeleteSchedule = async (plan: MedicationPlan | null = activePlan) => {
+    if (!plan) return;
+
+    const shouldDelete = window.confirm(
+      "Delete this medication schedule? This cannot be undone.",
+    );
+
+    if (!shouldDelete) return;
+
+    try {
+      setIsDeletingPlan(true);
+      const deletedPlanId = plan.id;
+      const nextPlan = visiblePlans.find((plan) => plan.id !== deletedPlanId);
+      await deleteMedicationPlan(deletedPlanId);
+      setActiveScheduleId(nextPlan?.id || "new");
+      toast({
+        title: "Schedule deleted",
+        description: "The medication schedule was removed.",
+      });
+    } catch (error) {
+      toast({
+        title: "Could not delete schedule",
+        description:
+          error instanceof Error
+            ? error.message
+            : "The medication schedule could not be deleted.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeletingPlan(false);
+    }
+  };
+
   const handleVerify = async (verified: boolean) => {
     if (!activeDose) return;
 
@@ -450,6 +631,112 @@ export default function PrescriptionsPage() {
         : "Reminder escalation will continue until the dose is verified.",
     });
     setActiveDose(null);
+  };
+
+  const handleDoseStatusUpdate = async (
+    dose: TimelineDose,
+    status: "taken" | "missed",
+  ) => {
+    const doseKey = `${dose.planId}-${dose.medicineId}-${dose._id}`;
+
+    try {
+      setUpdatingDoseId(doseKey);
+      await updateDoseStatus({
+        planId: dose.planId,
+        medicineId: dose.medicineId,
+        doseId: dose._id,
+        status,
+      });
+      toast({
+        title: status === "taken" ? "Dose marked done" : "Dose marked missed",
+        description:
+          status === "taken"
+            ? `${dose.medicineName} is now marked as taken.`
+            : `${dose.medicineName} is now marked as missed.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Could not update dose",
+        description:
+          error instanceof Error
+            ? error.message
+            : "The dose status could not be updated.",
+        variant: "destructive",
+      });
+    } finally {
+      setUpdatingDoseId(null);
+    }
+  };
+
+  const openScheduleEditor = (dose: TimelineDose) => {
+    setEditingDose(dose);
+    setScheduleTimeValue(getTimeInputValue(dose.scheduledAt));
+  };
+
+  const handleScheduleSave = async () => {
+    if (!editingDose || !scheduleTimeValue) return;
+
+    try {
+      setIsUpdatingSchedule(true);
+      await updateDoseSchedule({
+        planId: editingDose.planId,
+        medicineId: editingDose.medicineId,
+        doseId: editingDose._id,
+        scheduledAt: mergeDateWithTime(editingDose.scheduledAt, scheduleTimeValue),
+      });
+      toast({
+        title: "Dose time updated",
+        description: `${editingDose.medicineName} is now pending at ${scheduleTimeValue}.`,
+      });
+      setEditingDose(null);
+      setScheduleTimeValue("");
+    } catch (error) {
+      toast({
+        title: "Could not update time",
+        description:
+          error instanceof Error
+            ? error.message
+            : "The medicine schedule could not be updated.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingSchedule(false);
+    }
+  };
+
+  const openMedicineEditor = (medicine: MedicationMedicine) => {
+    setEditingMedicine(medicine);
+    setMedicineNameValue(medicine.name);
+  };
+
+  const handleMedicineSave = async () => {
+    if (!activePlan || !editingMedicine || !medicineNameValue.trim()) return;
+
+    try {
+      setIsUpdatingMedicine(true);
+      await updateMedicine({
+        planId: activePlan.id,
+        medicineId: editingMedicine._id,
+        name: medicineNameValue.trim(),
+      });
+      toast({
+        title: "Medicine name updated",
+        description: `${editingMedicine.name} was renamed to ${medicineNameValue.trim()}.`,
+      });
+      setEditingMedicine(null);
+      setMedicineNameValue("");
+    } catch (error) {
+      toast({
+        title: "Could not update medicine",
+        description:
+          error instanceof Error
+            ? error.message
+            : "The medicine name could not be updated.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingMedicine(false);
+    }
   };
 
   return (
@@ -502,10 +789,16 @@ export default function PrescriptionsPage() {
           </div>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[20rem_1fr]">
+        <div
+          className={cn(
+            "grid gap-6",
+            isSchedulesSidebarMinimized ? "xl:grid-cols-[4.5rem_1fr]" : "xl:grid-cols-[20rem_1fr]",
+          )}
+        >
           <aside className="space-y-4">
             <section className="rounded-lg border border-border bg-card p-4">
-              <div className="mb-4 flex items-center justify-between gap-3">
+              <div className={cn("mb-4 flex items-center justify-between gap-3", isSchedulesSidebarMinimized && "justify-center")}>
+                {!isSchedulesSidebarMinimized && (
                 <div>
                   <h2 className="font-display text-xl text-foreground">
                     Schedules
@@ -514,7 +807,16 @@ export default function PrescriptionsPage() {
                     Old and new medicine plans.
                   </p>
                 </div>
-                <CalendarDays className="text-primary" size={20} />
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsSchedulesSidebarMinimized((value) => !value)}
+                  title={isSchedulesSidebarMinimized ? "Expand schedules" : "Minimize schedules"}
+                >
+                  {isSchedulesSidebarMinimized ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+                </Button>
               </div>
 
               <div className="space-y-2">
@@ -523,13 +825,15 @@ export default function PrescriptionsPage() {
                   onClick={() => setActiveScheduleId("new")}
                   className={cn(
                     'w-full rounded-lg border px-3 py-2 text-left transition-all flex items-center gap-2',
+                    isSchedulesSidebarMinimized && 'justify-center px-0',
                     activeScheduleId === 'new'
                       ? 'border-primary bg-primary text-primary-foreground shadow-medical'
                       : 'border-dashed border-border bg-background text-foreground hover:bg-secondary/60'
                   )}
+                  title={isSchedulesSidebarMinimized ? "New Schedule" : undefined}
                 >
                   <Plus size={14} />
-                  <span className="text-sm font-medium">New Schedule</span>
+                  {!isSchedulesSidebarMinimized && <span className="text-sm font-medium">New Schedule</span>}
                 </button>
 
                 {visiblePlans.map((plan, index) => {
@@ -538,47 +842,124 @@ export default function PrescriptionsPage() {
                     plan.prescriptionFiles?.length ||
                     (plan.sourceFileUrl ? 1 : 0);
                   return (
-                    <button
-                      key={plan.id}
-                      type="button"
-                      onClick={() => setActiveScheduleId(plan.id)}
-                      className={cn(
-                        "w-full rounded-lg border px-3 py-3 text-left transition-all",
-                        isActive
-                          ? "border-primary bg-primary text-primary-foreground shadow-medical"
-                          : "border-border bg-background text-foreground hover:bg-secondary/60",
-                      )}
-                    >
-                      <p className="font-medium truncate">
-                        Schedule {visiblePlans.length - index}
-                      </p>
-                      <p
-                        className={cn(
-                          "mt-1 text-xs",
-                          isActive
-                            ? "text-primary-foreground/80"
-                            : "text-muted-foreground",
-                        )}
-                      >
-                        {new Date(plan.createdAt).toLocaleString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}
-                      </p>
-                      <p
-                        className={cn(
-                          "mt-1 text-xs",
-                          isActive
-                            ? "text-primary-foreground/80"
-                            : "text-muted-foreground",
-                        )}
-                      >
-                        {plan.medicines.length} medicines • {fileCount || 1}{" "}
-                        prescription{(fileCount || 1) === 1 ? "" : "s"}
-                      </p>
-                    </button>
+	                    <div
+	                      key={plan.id}
+	                      className={cn(
+	                        "w-full rounded-lg border px-3 py-3 transition-all",
+                          isSchedulesSidebarMinimized && "px-2 py-2",
+	                        isActive
+	                          ? "border-primary bg-primary text-primary-foreground shadow-medical"
+	                          : "border-border bg-background text-foreground hover:bg-secondary/60",
+	                      )}
+	                    >
+	                      <div className={cn("flex items-start gap-2", isSchedulesSidebarMinimized && "justify-center")}>
+	                        <button
+	                          type="button"
+	                          onClick={() => setActiveScheduleId(plan.id)}
+	                          className={cn("min-w-0 flex-1 text-left", isSchedulesSidebarMinimized && "flex-none text-center")}
+                            title={isSchedulesSidebarMinimized ? `Schedule ${visiblePlans.length - index}` : undefined}
+	                        >
+                            {isSchedulesSidebarMinimized ? (
+                              <CalendarDays size={18} className="mx-auto" />
+                            ) : (
+	                            <p className="font-medium truncate">
+	                              Schedule {visiblePlans.length - index}
+	                            </p>
+                            )}
+                            {!isSchedulesSidebarMinimized && (
+                            <>
+	                          <p
+	                            className={cn(
+                              "mt-1 text-xs",
+                              isActive
+                                ? "text-primary-foreground/80"
+                                : "text-muted-foreground",
+                            )}
+                          >
+                            {new Date(plan.createdAt).toLocaleString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}
+                          </p>
+                          <p
+                            className={cn(
+                              "mt-1 text-xs",
+                              isActive
+                                ? "text-primary-foreground/80"
+                                : "text-muted-foreground",
+                            )}
+                          >
+                            {plan.medicines.length} medicines • {fileCount || 1}{" "}
+                            prescription{(fileCount || 1) === 1 ? "" : "s"}
+                          </p>
+                          <span
+                            className={cn(
+                              "mt-2 inline-flex rounded-full px-2 py-0.5 text-xs font-medium capitalize",
+                              plan.status === "paused"
+                                ? isActive
+                                  ? "bg-primary-foreground/20 text-primary-foreground"
+                                  : "bg-amber-100 text-amber-700"
+                                : isActive
+                                  ? "bg-primary-foreground/20 text-primary-foreground"
+                                  : "bg-emerald-100 text-emerald-700",
+                            )}
+	                          >
+	                            {plan.status || "active"}
+	                          </span>
+                            </>
+                            )}
+	                        </button>
+	                        {!isSchedulesSidebarMinimized && (
+                          <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className={cn(
+                                "h-8 w-8 shrink-0",
+                                isActive
+                                  ? "text-primary-foreground hover:bg-primary-foreground/15 hover:text-primary-foreground"
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              <MoreVertical size={16} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onSelect={() => void handleToggleScheduleStatus(plan)}
+                              disabled={isChangingPlanStatus || isDeletingPlan}
+                            >
+                              {isChangingPlanStatus && activeScheduleId === plan.id ? (
+                                <RefreshCcw size={14} className="mr-2 animate-spin" />
+                              ) : plan.status === "paused" ? (
+                                <Play size={14} className="mr-2" />
+                              ) : (
+                                <Pause size={14} className="mr-2" />
+                              )}
+                              {plan.status === "paused" ? "Start schedule" : "Pause schedule"}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onSelect={() => void handleDeleteSchedule(plan)}
+                              disabled={isChangingPlanStatus || isDeletingPlan}
+                            >
+                              {isDeletingPlan && activeScheduleId === plan.id ? (
+                                <RefreshCcw size={14} className="mr-2 animate-spin" />
+                              ) : (
+                                <Trash2 size={14} className="mr-2" />
+                              )}
+                              Delete schedule
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+	                        </DropdownMenu>
+                          )}
+	                      </div>
+	                    </div>
                   );
                 })}
               </div>
@@ -618,20 +999,29 @@ export default function PrescriptionsPage() {
               </div>
             </div>
 
-            <div className="grid gap-6 xl:grid-cols-[1fr_22rem]">
+            <div
+              className={cn(
+                "grid gap-6",
+                isDetailsSidebarMinimized ? "xl:grid-cols-[1fr_4.5rem]" : "xl:grid-cols-[1fr_22rem]",
+              )}
+            >
               <section className="rounded-lg border border-border bg-card p-4 lg:p-5">
-                <div className="flex items-center justify-between gap-3 mb-4">
+                <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h2 className="font-display text-xl text-foreground">
                       {activePlan ? "Medicine Timeline" : "Start New Schedule"}
                     </h2>
                     <p className="text-sm text-muted-foreground">
                       {activePlan
-                        ? "Daily tracking organized by date."
+                        ? isActivePlanPaused
+                          ? "This schedule is paused. Start it to continue dose tracking."
+                          : "Daily tracking organized by date."
                         : "Upload a prescription to create the first medicine timeline."}
                     </p>
                   </div>
-                  <AlarmClock className="text-primary" size={22} />
+                  {!activePlan && (
+                    <AlarmClock className="text-primary" size={22} />
+                  )}
                 </div>
 
                 <div className="space-y-3">
@@ -655,7 +1045,7 @@ export default function PrescriptionsPage() {
                         variant="medical"
                         className="mt-4"
                         onClick={() => prescriptionInputRef.current?.click()}
-                        disabled={isUploadingPrescription}
+                        disabled={isUploadingPrescription || isActivePlanPaused}
                       >
                         {isUploadingPrescription ? (
                           <RefreshCcw size={16} className="animate-spin" />
@@ -674,20 +1064,31 @@ export default function PrescriptionsPage() {
                       key={dayGroup.dateString}
                       dayGroup={dayGroup}
                       onDoseClick={setActiveDose}
-                      onMissedClick={(dose) =>
-                        updateDoseStatus({
-                          planId: dose.planId,
-                          medicineId: dose.medicineId,
-                          doseId: dose._id,
-                          status: "missed",
-                        })
-                      }
+                      onEditTime={openScheduleEditor}
+                      onMarkMissed={(dose) => void handleDoseStatusUpdate(dose, "missed")}
+                      onMarkTaken={(dose) => void handleDoseStatusUpdate(dose, "taken")}
+                      isPaused={isActivePlanPaused}
+                      updatingDoseId={updatingDoseId}
                     />
                   ))}
                 </div>
               </section>
 
               <aside className="space-y-6">
+                <section className="rounded-lg border border-border bg-card p-3">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="w-full"
+                    onClick={() => setIsDetailsSidebarMinimized((value) => !value)}
+                    title={isDetailsSidebarMinimized ? "Expand details" : "Minimize details"}
+                  >
+                    {isDetailsSidebarMinimized ? <PanelRightOpen size={18} /> : <PanelRightClose size={18} />}
+                  </Button>
+                </section>
+                {!isDetailsSidebarMinimized && (
+                <>
                 {/* Next Medicines to Take */}
                 <section className="rounded-lg border border-border bg-card p-4 lg:p-5">
                   <div className="mb-4">
@@ -813,6 +1214,7 @@ export default function PrescriptionsPage() {
                             <MedicineCard
                               key={medicine._id}
                               medicine={medicine}
+                              onEditName={openMedicineEditor}
                             />
                           ))
                         ) : (
@@ -847,7 +1249,7 @@ export default function PrescriptionsPage() {
                         variant="outline"
                         size="sm"
                         onClick={() => prescriptionInputRef.current?.click()}
-                        disabled={isUploadingPrescription}
+                        disabled={isUploadingPrescription || isActivePlanPaused}
                       >
                         {isUploadingPrescription ? (
                           <RefreshCcw size={14} className="animate-spin" />
@@ -857,6 +1259,8 @@ export default function PrescriptionsPage() {
                       </Button>
                     </div>
                   </section>
+                )}
+                </>
                 )}
               </aside>
             </div>
@@ -889,6 +1293,7 @@ export default function PrescriptionsPage() {
               <PillDetector
                 medicineId={activeDose.medicineId}
                 scheduledTime={activeDose.scheduledAt}
+                autoStart
                 onIntakeConfirmed={() => {
                   void handleVerify(true);
                 }}
@@ -898,6 +1303,84 @@ export default function PrescriptionsPage() {
           </div>
         </div>
       )}
+
+      <Dialog open={Boolean(editingDose)} onOpenChange={(open) => !open && setEditingDose(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Intake Time</DialogTitle>
+            <DialogDescription>
+              Choose a new time for this medicine dose. The calendar day stays the same.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="rounded-lg border border-border bg-secondary/40 p-3">
+              <p className="font-medium text-foreground">{editingDose?.medicineName}</p>
+              <p className="text-sm text-muted-foreground">
+                {editingDose?.dosage}
+                {editingDose ? ` • ${format(new Date(editingDose.scheduledAt), "EEEE, MMM d")}` : ""}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="dose-time" className="text-sm font-medium text-foreground">
+                Intake time
+              </label>
+              <Input
+                id="dose-time"
+                type="time"
+                value={scheduleTimeValue}
+                onChange={(event) => setScheduleTimeValue(event.target.value)}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingDose(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleScheduleSave} disabled={isUpdatingSchedule || !scheduleTimeValue}>
+              {isUpdatingSchedule ? "Saving..." : "Save Time"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(editingMedicine)} onOpenChange={(open) => !open && setEditingMedicine(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Medicine Name</DialogTitle>
+            <DialogDescription>
+              Rename this medicine across the active schedule and reminders.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <label htmlFor="medicine-name" className="text-sm font-medium text-foreground">
+              Medicine name
+            </label>
+            <Input
+              id="medicine-name"
+              value={medicineNameValue}
+              onChange={(event) => setMedicineNameValue(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  void handleMedicineSave();
+                }
+              }}
+              placeholder="Enter medicine name"
+            />
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingMedicine(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleMedicineSave} disabled={isUpdatingMedicine || !medicineNameValue.trim()}>
+              {isUpdatingMedicine ? "Saving..." : "Save Name"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

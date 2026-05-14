@@ -13,6 +13,9 @@ export default function DashboardPage() {
   }
 
   const recentRecords = medicalRecords.slice(0, 3);
+  const emergencyPhone = patient.emergencyContact.phone;
+  const emergencyPhoneHref = emergencyPhone.replace(/[^\d+]/g, '');
+  const canCallEmergencyContact = emergencyPhoneHref.length >= 7;
 
   return (
     <DashboardLayout>
@@ -62,7 +65,13 @@ export default function DashboardPage() {
                 <div className="flex-1">
                   <p className="text-xs text-muted-foreground uppercase tracking-wider">Emergency Contact</p>
                   <p className="text-sm font-medium text-foreground">{patient.emergencyContact.name}</p>
-                  <p className="text-xs text-primary">{patient.emergencyContact.phone}</p>
+                  {canCallEmergencyContact ? (
+                    <a href={`tel:${emergencyPhoneHref}`} className="text-xs text-primary hover:underline">
+                      {emergencyPhone}
+                    </a>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No number available</p>
+                  )}
                 </div>
               </div>
             </div>
