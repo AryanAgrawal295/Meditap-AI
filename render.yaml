@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: meditap-ai-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./frontend/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+  - type: web
+    name: meditap-ai
+    runtime: node
+    rootDir: backend/backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
