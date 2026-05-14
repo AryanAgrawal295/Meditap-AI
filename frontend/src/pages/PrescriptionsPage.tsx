@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlarmClock,
   Bell,
@@ -446,7 +447,10 @@ export default function PrescriptionsPage() {
     deleteMedicationPlan,
   } = useApp();
   const { toast } = useToast();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [activeDose, setActiveDose] = useState<TimelineDose | null>(null);
+  const [isAlarmVerification, setIsAlarmVerification] = useState(false);
   const [editingDose, setEditingDose] = useState<TimelineDose | null>(null);
   const [scheduleTimeValue, setScheduleTimeValue] = useState("");
   const [isUpdatingSchedule, setIsUpdatingSchedule] = useState(false);
@@ -462,6 +466,39 @@ export default function PrescriptionsPage() {
   const [isSchedulesSidebarMinimized, setIsSchedulesSidebarMinimized] = useState(false);
   const [isDetailsSidebarMinimized, setIsDetailsSidebarMinimized] = useState(false);
   const prescriptionInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const alarmDose = (location.state as { alarmVerificationDose?: TimelineDose } | null)
+      ?.alarmVerificationDose;
+
+    if (!alarmDose) return;
+
+    setActiveScheduleId(alarmDose.planId);
+    setActiveDose(alarmDose);
+    setIsAlarmVerification(true);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, location.state, navigate]);
+
+  useEffect(() => {
+    if (!isAlarmVerification || !activeDose) return;
+
+    window.history.pushState({ medicineAlarmLocked: true }, "", window.location.href);
+
+    const keepVerificationOpen = () => {
+      navigate("/prescriptions", {
+        replace: true,
+        state: {
+          alarmVerificationDose: activeDose,
+        },
+      });
+    };
+
+    window.addEventListener("popstate", keepVerificationOpen);
+
+    return () => {
+      window.removeEventListener("popstate", keepVerificationOpen);
+    };
+  }, [activeDose, isAlarmVerification, navigate]);
 
   const activePlan = useMemo(
     () => medicationPlans.find((plan) => plan.id === activeScheduleId) || null,
@@ -631,6 +668,7 @@ export default function PrescriptionsPage() {
         : "Reminder escalation will continue until the dose is verified.",
     });
     setActiveDose(null);
+    setIsAlarmVerification(false);
   };
 
   const handleDoseStatusUpdate = async (
@@ -1063,7 +1101,10 @@ export default function PrescriptionsPage() {
                     <DayCard
                       key={dayGroup.dateString}
                       dayGroup={dayGroup}
-                      onDoseClick={setActiveDose}
+                      onDoseClick={(dose) => {
+                        setIsAlarmVerification(false);
+                        setActiveDose(dose);
+                      }}
                       onEditTime={openScheduleEditor}
                       onMarkMissed={(dose) => void handleDoseStatusUpdate(dose, "missed")}
                       onMarkTaken={(dose) => void handleDoseStatusUpdate(dose, "taken")}
@@ -1280,13 +1321,15 @@ export default function PrescriptionsPage() {
                   Camera-based pill detection for {activeDose.medicineName}.
                 </p>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setActiveDose(null)}
-              >
-                <XCircle size={20} />
-              </Button>
+              {!isAlarmVerification && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setActiveDose(null)}
+                >
+                  <XCircle size={20} />
+                </Button>
+              )}
             </div>
 
             <div className="mt-4">
@@ -1297,7 +1340,7 @@ export default function PrescriptionsPage() {
                 onIntakeConfirmed={() => {
                   void handleVerify(true);
                 }}
-                onCancel={() => setActiveDose(null)}
+                onCancel={isAlarmVerification ? undefined : () => setActiveDose(null)}
               />
             </div>
           </div>

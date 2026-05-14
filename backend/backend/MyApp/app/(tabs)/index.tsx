@@ -38,6 +38,8 @@ export default function HomeScreen() {
       <WebView
         source={{ uri: WEBSITE_URL }}
         startInLoadingState
+        mediaPlaybackRequiresUserAction={false}
+        allowsInlineMediaPlayback
         onLoadEnd={() => {
           setScreenState({ kind: 'ready' });
         }}
