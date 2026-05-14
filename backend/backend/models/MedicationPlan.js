@@ -89,6 +89,11 @@ const medicationPlanSchema = new mongoose.Schema(
       enum: ["ocr", "manual", "import"],
       default: "ocr",
     },
+    status: {
+      type: String,
+      enum: ["active", "paused"],
+      default: "active",
+    },
     sourceFileUrl: String,
     sourceFilePublicId: String,
     sourceFileName: String,

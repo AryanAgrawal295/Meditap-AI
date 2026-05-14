@@ -83,6 +83,10 @@ export default function BasicInfoPage() {
     );
   }
 
+  const emergencyPhone = patient.emergencyContact.phone;
+  const emergencyPhoneHref = emergencyPhone.replace(/[^\d+]/g, '');
+  const canCallEmergencyContact = emergencyPhoneHref.length >= 7;
+
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-lg">
@@ -147,7 +151,13 @@ export default function BasicInfoPage() {
                 <div>
                   <span className="font-medium">{patient.emergencyContact.name}</span>
                   <span className="text-muted-foreground text-sm"> ({patient.emergencyContact.relation})</span>
-                  <p className="text-sm text-primary">{patient.emergencyContact.phone}</p>
+                  {canCallEmergencyContact ? (
+                    <a href={`tel:${emergencyPhoneHref}`} className="block text-sm text-primary hover:underline">
+                      {emergencyPhone}
+                    </a>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No emergency number available</p>
+                  )}
                 </div>
               }
             />

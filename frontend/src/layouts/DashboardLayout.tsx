@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
-import { LayoutDashboard, History, Pill, Bot, User, LogOut, Menu, X } from 'lucide-react';
+import { LayoutDashboard, History, Pill, Bot, User, LogOut, Menu, X, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface DashboardLayoutProps {
@@ -21,6 +21,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const location = useLocation();
   const { isAuthenticated, isInitializing, role, logout } = useApp();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarMinimized, setSidebarMinimized] = useState(false);
 
   useEffect(() => {
     if (!isInitializing && !isAuthenticated) {
@@ -55,12 +56,18 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   return (
     <div className="min-h-screen bg-background flex">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex flex-col w-72 bg-card border-r border-border p-6 sticky top-0 h-screen overflow-y-auto">
+      <aside
+        className={cn(
+          "hidden lg:flex flex-col bg-card border-r border-border sticky top-0 h-screen overflow-y-auto transition-all duration-200",
+          sidebarMinimized ? "w-20 p-4" : "w-72 p-6",
+        )}
+      >
         {/* Logo */}
-        <div className="flex items-center gap-3 mb-8">
+        <div className={cn("flex items-center gap-3 mb-8", sidebarMinimized && "justify-center")}>
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center">
             <span className="text-primary-foreground font-display font-bold text-lg">M</span>
           </div>
+          {!sidebarMinimized && (
           <div>
             <h1 className="font-display font-semibold text-xl text-foreground">NFC Next Level</h1>
             {role && (
@@ -69,7 +76,19 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               </span>
             )}
           </div>
+          )}
         </div>
+        <button
+          type="button"
+          onClick={() => setSidebarMinimized((value) => !value)}
+          className={cn(
+            "mb-4 flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground transition-all duration-200 hover:bg-accent hover:text-accent-foreground",
+            !sidebarMinimized && "self-start",
+          )}
+          title={sidebarMinimized ? "Expand sidebar" : "Minimize sidebar"}
+        >
+          {sidebarMinimized ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
+        </button>
 
         {/* Navigation */}
         <nav className="flex-1 space-y-2">
@@ -79,28 +98,34 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               <button
                 key={path}
                 onClick={() => navigate(path)}
-                className={cn(
-                  'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-left',
-                  isActive
-                    ? 'bg-primary text-primary-foreground shadow-medical'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-                )}
-              >
-                <Icon size={20} />
-                <span className="font-medium">{label}</span>
-              </button>
+	                className={cn(
+	                  'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-left',
+                    sidebarMinimized && 'justify-center px-0',
+	                  isActive
+	                    ? 'bg-primary text-primary-foreground shadow-medical'
+	                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+	                )}
+                  title={sidebarMinimized ? label : undefined}
+	              >
+	                <Icon size={20} />
+	                {!sidebarMinimized && <span className="font-medium">{label}</span>}
+	              </button>
             );
           })}
         </nav>
 
         {/* Logout */}
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-3 px-4 py-3 rounded-xl text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-all duration-200"
-        >
-          <LogOut size={20} />
-          <span className="font-medium">Logout</span>
-        </button>
+	        <button
+	          onClick={handleLogout}
+	          className={cn(
+              "flex items-center gap-3 px-4 py-3 rounded-xl text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-all duration-200",
+              sidebarMinimized && "justify-center px-0",
+            )}
+            title={sidebarMinimized ? "Logout" : undefined}
+	        >
+	          <LogOut size={20} />
+	          {!sidebarMinimized && <span className="font-medium">Logout</span>}
+	        </button>
       </aside>
 
       {/* Main Content */}

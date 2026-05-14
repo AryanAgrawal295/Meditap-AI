@@ -68,6 +68,7 @@ function toClientPlan(plan) {
     id: plan._id,
     patient: plan.patient,
     source: plan.source,
+    status: plan.status || "active",
     prescriptionText: plan.prescriptionText,
     sourceFileUrl,
     sourceFilePublicId: plan.sourceFilePublicId,
@@ -313,23 +314,25 @@ exports.getReminderQueue = async (req, res) => {
     }
 
     const plans = await MedicationPlan.find({ patient: req.params.patientId }).sort({ createdAt: -1 });
-    const reminders = plans.flatMap((plan) =>
-      plan.medicines.flatMap((medicine) =>
-        medicine.doses
-          .filter((dose) => dose.status === "pending")
-          .map((dose) => ({
-            planId: plan._id,
-            medicineId: medicine._id,
-            medicineName: medicine.name,
-            dosage: medicine.dosage,
-            doseId: dose._id,
-            scheduledAt: dose.scheduledAt,
-            timingLabel: dose.timingLabel,
-            reminderLevel: getReminderLevel(dose),
-            caretakerNotification: getReminderLevel(dose) >= 4,
-          }))
-      )
-    );
+    const reminders = plans
+      .filter((plan) => (plan.status || "active") === "active")
+      .flatMap((plan) =>
+        plan.medicines.flatMap((medicine) =>
+          medicine.doses
+            .filter((dose) => dose.status === "pending")
+            .map((dose) => ({
+              planId: plan._id,
+              medicineId: medicine._id,
+              medicineName: medicine.name,
+              dosage: medicine.dosage,
+              doseId: dose._id,
+              scheduledAt: dose.scheduledAt,
+              timingLabel: dose.timingLabel,
+              reminderLevel: getReminderLevel(dose),
+              caretakerNotification: getReminderLevel(dose) >= 4,
+            }))
+        )
+      );
 
     res.json(reminders.filter((item) => item.reminderLevel > 0));
   } catch (error) {
@@ -355,6 +358,10 @@ exports.verifyDose = async (req, res) => {
 
     if (!medicine || !dose) {
       return res.status(404).json({ message: "Dose not found" });
+    }
+
+    if ((plan.status || "active") === "paused") {
+      return res.status(400).json({ message: "Start this schedule before verifying doses" });
     }
 
     const verification = verifyIntakeEvidence(req.body);
@@ -401,12 +408,153 @@ exports.updateDoseStatus = async (req, res) => {
       return res.status(404).json({ message: "Dose not found" });
     }
 
+    if ((plan.status || "active") === "paused") {
+      return res.status(400).json({ message: "Start this schedule before updating dose status" });
+    }
+
     dose.status = status;
     dose.takenAt = status === "taken" ? new Date() : undefined;
     dose.missedAt = status === "missed" ? new Date() : undefined;
 
     await plan.save();
     res.json(toClientPlan(plan));
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.updateDoseSchedule = async (req, res) => {
+  try {
+    const { planId, medicineId, doseId } = req.params;
+    const { scheduledAt } = req.body;
+    const plan = await MedicationPlan.findById(planId);
+
+    if (!scheduledAt) {
+      return res.status(400).json({ message: "scheduledAt is required" });
+    }
+
+    const nextScheduledAt = new Date(scheduledAt);
+
+    if (Number.isNaN(nextScheduledAt.getTime())) {
+      return res.status(400).json({ message: "Invalid scheduledAt value" });
+    }
+
+    if (!plan) {
+      return res.status(404).json({ message: "Medication plan not found" });
+    }
+
+    if (!canAccessPatient(req, plan.patient)) {
+      return res.status(403).json({ message: "Access denied for this patient" });
+    }
+
+    const medicine = plan.medicines.id(medicineId);
+    const dose = medicine?.doses.id(doseId);
+
+    if (!medicine || !dose) {
+      return res.status(404).json({ message: "Dose not found" });
+    }
+
+    if ((plan.status || "active") === "paused") {
+      return res.status(400).json({ message: "Start this schedule before rescheduling doses" });
+    }
+
+    if (!["pending", "missed"].includes(dose.status)) {
+      return res.status(400).json({ message: "Only pending or missed doses can be rescheduled" });
+    }
+
+    dose.scheduledAt = nextScheduledAt;
+    dose.status = "pending";
+    dose.reminderLevel = 0;
+    dose.missedAt = undefined;
+    dose.takenAt = undefined;
+
+    await plan.save();
+    res.json(toClientPlan(plan));
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.updateMedicine = async (req, res) => {
+  try {
+    const { planId, medicineId } = req.params;
+    const { name } = req.body;
+    const plan = await MedicationPlan.findById(planId);
+
+    if (!String(name || "").trim()) {
+      return res.status(400).json({ message: "Medicine name is required" });
+    }
+
+    if (!plan) {
+      return res.status(404).json({ message: "Medication plan not found" });
+    }
+
+    if (!canAccessPatient(req, plan.patient)) {
+      return res.status(403).json({ message: "Access denied for this patient" });
+    }
+
+    const medicine = plan.medicines.id(medicineId);
+
+    if (!medicine) {
+      return res.status(404).json({ message: "Medicine not found" });
+    }
+
+    medicine.name = String(name).trim();
+
+    await plan.save();
+    res.json(toClientPlan(plan));
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.updatePlanStatus = async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const { status } = req.body;
+    const plan = await MedicationPlan.findById(planId);
+
+    if (!["active", "paused"].includes(status)) {
+      return res.status(400).json({ message: "Invalid schedule status" });
+    }
+
+    if (!plan) {
+      return res.status(404).json({ message: "Medication plan not found" });
+    }
+
+    if (!canAccessPatient(req, plan.patient)) {
+      return res.status(403).json({ message: "Access denied for this patient" });
+    }
+
+    plan.status = status;
+    plan.agentTrace.push({
+      agent: "Schedule control",
+      status,
+      summary: status === "paused" ? "Medication schedule paused." : "Medication schedule started.",
+    });
+
+    await plan.save();
+    res.json(toClientPlan(plan));
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.deletePlan = async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const plan = await MedicationPlan.findById(planId);
+
+    if (!plan) {
+      return res.status(404).json({ message: "Medication plan not found" });
+    }
+
+    if (!canAccessPatient(req, plan.patient)) {
+      return res.status(403).json({ message: "Access denied for this patient" });
+    }
+
+    await plan.deleteOne();
+    res.status(204).send();
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

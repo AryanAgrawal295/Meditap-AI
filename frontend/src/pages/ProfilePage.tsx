@@ -16,6 +16,10 @@ export default function ProfilePage() {
     return null;
   }
 
+  const emergencyPhone = patient.emergencyContact.phone;
+  const emergencyPhoneHref = emergencyPhone.replace(/[^\d+]/g, '');
+  const canCallEmergencyContact = emergencyPhoneHref.length >= 7;
+
   return (
     <DashboardLayout>
       <div className="max-w-3xl mx-auto">
@@ -113,13 +117,20 @@ export default function ProfilePage() {
                 </div>
               </div>
               
-              <a
-                href={`tel:${patient.emergencyContact.phone}`}
-                className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-destructive/10 text-destructive font-medium hover:bg-destructive/20 transition-colors"
-              >
-                <Phone size={18} />
-                {patient.emergencyContact.phone}
-              </a>
+              {canCallEmergencyContact ? (
+                <a
+                  href={`tel:${emergencyPhoneHref}`}
+                  className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-destructive/10 text-destructive font-medium hover:bg-destructive/20 transition-colors"
+                >
+                  <Phone size={18} />
+                  {emergencyPhone}
+                </a>
+              ) : (
+                <div className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-muted text-muted-foreground font-medium">
+                  <Phone size={18} />
+                  No emergency number available
+                </div>
+              )}
             </div>
           </div>
         </div>

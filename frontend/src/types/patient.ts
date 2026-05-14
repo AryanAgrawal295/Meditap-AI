@@ -104,6 +104,7 @@ export interface MedicationPlan {
   id: string;
   patient: string;
   source: 'ocr' | 'manual' | 'import';
+  status: 'active' | 'paused';
   prescriptionText?: string;
   sourceFileUrl?: string;
   sourceFilePublicId?: string;

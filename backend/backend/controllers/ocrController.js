@@ -10,8 +10,9 @@ const { extractMedicinesFromImage } = require("../services/medicationAgentServic
 
 function cleanOCRText(text) {
   return text
-    .replace(/[^a-zA-Z0-9\/:\n ]/g, " ")
-    .replace(/\s+/g, " ")
+    .replace(/[^a-zA-Z0-9\/:.,\-\n ]/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 

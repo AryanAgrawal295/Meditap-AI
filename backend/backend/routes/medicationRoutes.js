@@ -35,6 +35,20 @@ router.get(
   medicationController.getReminderQueue
 );
 
+router.patch(
+  "/plans/:planId/status",
+  auth,
+  role("doctor"),
+  medicationController.updatePlanStatus
+);
+
+router.delete(
+  "/plans/:planId",
+  auth,
+  role("doctor"),
+  medicationController.deletePlan
+);
+
 router.post(
   "/:planId/medicines/:medicineId/doses/:doseId/verify",
   auth,
@@ -43,10 +57,24 @@ router.post(
 );
 
 router.patch(
+  "/:planId/medicines/:medicineId",
+  auth,
+  role("doctor"),
+  medicationController.updateMedicine
+);
+
+router.patch(
   "/:planId/medicines/:medicineId/doses/:doseId/status",
   auth,
   role("doctor"),
   medicationController.updateDoseStatus
+);
+
+router.patch(
+  "/:planId/medicines/:medicineId/doses/:doseId/schedule",
+  auth,
+  role("doctor"),
+  medicationController.updateDoseSchedule
 );
 
 module.exports = router;
