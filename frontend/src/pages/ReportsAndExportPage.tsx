@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { DashboardLayout } from "@/layouts/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,14 +21,16 @@ import {
   Lock,
   Clock,
   AlertCircle,
-  CheckCircle2,
+  Eye,
 } from "lucide-react";
 import {
   exportAsText,
   exportAsHTML,
   exportAsJSON,
+  generateHTMLReport,
   printReport,
 } from "@/lib/reportGenerator";
+import type { ReportData } from "@/lib/reportGenerator";
 import { useApp } from "@/contexts/AppContext";
 import QRCode from "qrcode";
 
@@ -41,7 +43,7 @@ interface ExportPreferences {
 }
 
 export default function ReportsAndExportPage() {
-  const { currentPatientId } = useApp();
+  const { currentPatientId, patient, medicalRecords, medicationPlans } = useApp();
   const [preferences, setPreferences] = useState<ExportPreferences>({
     includeVitals: true,
     includeMedications: true,
@@ -54,80 +56,109 @@ export default function ReportsAndExportPage() {
   const [shareToken, setShareToken] = useState<string | null>(null);
   const [shareQR, setShareQR] = useState<string>("");
   const [shareExpiry, setShareExpiry] = useState("24"); // hours
+  const [isReportPreviewOpen, setIsReportPreviewOpen] = useState(false);
+
+  const reportData = useMemo<ReportData>(() => {
+    const sortedRecords = [...medicalRecords].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+    const latestRecord = sortedRecords[0];
+    const validRecordDates = medicalRecords
+      .map((record) => new Date(record.date))
+      .filter((date) => !Number.isNaN(date.getTime()));
+    const allMedicines = medicationPlans.flatMap((plan) =>
+      plan.medicines.map((medicine) => ({
+        name: medicine.name,
+        dosage: medicine.dosage,
+        frequency: medicine.frequency,
+        startDate: new Date(plan.createdAt),
+        endDate:
+          medicine.durationDays > 0
+            ? new Date(new Date(plan.createdAt).getTime() + medicine.durationDays * 24 * 60 * 60 * 1000)
+            : undefined,
+      }))
+    );
+    const adherence = medicationPlans.reduce(
+      (totals, plan) => ({
+        taken: totals.taken + (plan.adherence?.taken || 0),
+        missed: totals.missed + (plan.adherence?.missed || 0),
+        pending: totals.pending + (plan.adherence?.pending || 0),
+      }),
+      { taken: 0, missed: 0, pending: 0 }
+    );
+    const summaryParts = [
+      `This report is generated from the patient profile and ${medicalRecords.length} medical record${medicalRecords.length === 1 ? "" : "s"} currently available in Meditap AI.`,
+    ];
+    const latestRecordDate = latestRecord ? new Date(latestRecord.date) : null;
+
+    if (latestRecord && latestRecordDate && !Number.isNaN(latestRecordDate.getTime())) {
+      summaryParts.push(
+        `Latest recorded visit: ${latestRecordDate.toLocaleDateString()} for ${latestRecord.diagnosis || latestRecord.title}.`
+      );
+    }
+
+    if (patient?.allergies?.length) {
+      summaryParts.push(`Recorded allergies: ${patient.allergies.join(", ")}.`);
+    }
+
+    if (allMedicines.length > 0) {
+      summaryParts.push(
+        `Medication data includes ${allMedicines.length} medicine${allMedicines.length === 1 ? "" : "s"} across ${medicationPlans.length} medication plan${medicationPlans.length === 1 ? "" : "s"}.`
+      );
+    }
+
+    if (adherence.taken || adherence.missed || adherence.pending) {
+      summaryParts.push(
+        `Dose history shows ${adherence.taken} taken, ${adherence.missed} missed, and ${adherence.pending} pending dose${adherence.pending === 1 ? "" : "s"}.`
+      );
+    }
+
+    summaryParts.push("No diagnosis, condition status, or recommendation is inferred beyond the stored medical history.");
+
+    return {
+      patientName: preferences.anonymize ? "Anonymized Patient" : patient?.name || "Patient not selected",
+      patientId: preferences.anonymize ? "Hidden" : currentPatientId || patient?.id || "Unavailable",
+      doctorName: latestRecord?.doctorName || latestRecord?.doctor,
+      hospitalName: latestRecord?.hospital,
+      reportType: "medical-history",
+      generatedDate: new Date(),
+      period:
+        validRecordDates.length > 0
+          ? {
+              start: new Date(Math.min(...validRecordDates.map((date) => date.getTime()))),
+              end: new Date(Math.max(...validRecordDates.map((date) => date.getTime()))),
+            }
+          : undefined,
+      medicalRecords: preferences.includeMedicalHistory
+        ? sortedRecords.map((record) => ({
+            type: record.recordType,
+            date: new Date(record.date),
+            diagnosis: record.diagnosis || record.title,
+            notes: [record.description, record.doctor ? `Doctor: ${record.doctor}` : "", record.hospital ? `Hospital: ${record.hospital}` : ""]
+              .filter(Boolean)
+              .join("\n"),
+          }))
+        : undefined,
+      medications: preferences.includeMedications ? allMedicines : undefined,
+      summary: summaryParts.join(" "),
+    };
+  }, [currentPatientId, medicalRecords, medicationPlans, patient, preferences.anonymize, preferences.includeMedicalHistory, preferences.includeMedications]);
+
+  const reportPreviewHTML = useMemo(() => generateHTMLReport(reportData), [reportData]);
 
   const handleExportAsText = () => {
-    const reportData = {
-      patientName: "John Doe",
-      patientId: currentPatientId || "P001",
-      doctorName: "Dr. Smith",
-      hospitalName: "City Medical Center",
-      reportType: "medical-history" as const,
-      generatedDate: new Date(),
-      summary: "Patient is in stable condition with well-controlled chronic conditions.",
-      recommendations: [
-        "Continue current medications",
-        "Monitor blood pressure daily",
-        "Follow up in 4 weeks",
-      ],
-    };
-
     exportAsText(reportData);
   };
 
   const handleExportAsHTML = () => {
-    const reportData = {
-      patientName: "John Doe",
-      patientId: currentPatientId || "P001",
-      doctorName: "Dr. Smith",
-      hospitalName: "City Medical Center",
-      reportType: "medical-history" as const,
-      generatedDate: new Date(),
-      summary: "Patient is in stable condition with well-controlled chronic conditions.",
-      recommendations: [
-        "Continue current medications",
-        "Monitor blood pressure daily",
-        "Follow up in 4 weeks",
-      ],
-    };
-
     exportAsHTML(reportData);
   };
 
   const handleExportAsJSON = () => {
-    const reportData = {
-      patientName: "John Doe",
-      patientId: currentPatientId || "P001",
-      doctorName: "Dr. Smith",
-      hospitalName: "City Medical Center",
-      reportType: "medical-history" as const,
-      generatedDate: new Date(),
-      summary: "Patient is in stable condition with well-controlled chronic conditions.",
-      recommendations: [
-        "Continue current medications",
-        "Monitor blood pressure daily",
-        "Follow up in 4 weeks",
-      ],
-    };
-
     exportAsJSON(reportData);
   };
 
   const handlePrint = () => {
-    const reportData = {
-      patientName: "John Doe",
-      patientId: currentPatientId || "P001",
-      doctorName: "Dr. Smith",
-      hospitalName: "City Medical Center",
-      reportType: "medical-history" as const,
-      generatedDate: new Date(),
-      summary: "Patient is in stable condition with well-controlled chronic conditions.",
-      recommendations: [
-        "Continue current medications",
-        "Monitor blood pressure daily",
-        "Follow up in 4 weeks",
-      ],
-    };
-
     printReport(reportData);
   };
 
@@ -310,44 +341,63 @@ export default function ReportsAndExportPage() {
 
           {/* Reports Tab */}
           <TabsContent value="reports" className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <ReportCard
-                title="Medical History Report"
-                description="Complete medical history, diagnoses, and treatments"
-                icon={<FileText className="h-5 w-5" />}
-                onClick={() => console.log("Generate Medical History Report")}
-              />
-              <ReportCard
-                title="Medication Report"
-                description="Current and past medications with adherence data"
-                icon={<FileText className="h-5 w-5" />}
-                onClick={() => console.log("Generate Medication Report")}
-              />
-              <ReportCard
-                title="Vital Signs Report"
-                description="Trends and metrics for all vital signs"
-                icon={<FileText className="h-5 w-5" />}
-                onClick={() => console.log("Generate Vital Signs Report")}
-              />
-              <ReportCard
-                title="Health Summary"
-                description="Executive summary for healthcare providers"
-                icon={<FileText className="h-5 w-5" />}
-                onClick={() => console.log("Generate Health Summary")}
-              />
-              <ReportCard
-                title="Insurance Documentation"
-                description="Pre-authorization and claim documentation"
-                icon={<FileText className="h-5 w-5" />}
-                onClick={() => console.log("Generate Insurance Docs")}
-              />
-              <ReportCard
-                title="Discharge Summary"
-                description="Summary for hospital discharge or referral"
-                icon={<FileText className="h-5 w-5" />}
-                onClick={() => console.log("Generate Discharge Summary")}
-              />
-            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  Real-Time Patient Medical Report
+                </CardTitle>
+                <CardDescription>
+                  Generated from the selected patient profile, medical history, and medication schedule.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-3 text-sm sm:grid-cols-3">
+                  <div className="rounded-lg border p-3">
+                    <p className="text-muted-foreground">Patient</p>
+                    <p className="font-medium">{reportData.patientName}</p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-muted-foreground">Medical Records</p>
+                    <p className="font-medium">{medicalRecords.length}</p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-muted-foreground">Medication Plans</p>
+                    <p className="font-medium">{medicationPlans.length}</p>
+                  </div>
+                </div>
+
+                <p className="text-sm text-muted-foreground">{reportData.summary}</p>
+
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Button onClick={handleExportAsHTML}>
+                    <Download className="mr-2 h-4 w-4" />
+                    Generate Report
+                  </Button>
+                  <Dialog open={isReportPreviewOpen} onOpenChange={setIsReportPreviewOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline">
+                        <Eye className="mr-2 h-4 w-4" />
+                        Pop Up Report
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-5xl h-[85vh]">
+                      <DialogHeader>
+                        <DialogTitle>Patient Medical Report</DialogTitle>
+                        <DialogDescription>
+                          Preview generated from the current patient data.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <iframe
+                        title="Patient Medical Report Preview"
+                        srcDoc={reportPreviewHTML}
+                        className="h-full min-h-0 w-full rounded-md border bg-white"
+                      />
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* Sharing Tab */}
@@ -447,18 +497,20 @@ export default function ReportsAndExportPage() {
                 <div className="border-t pt-4">
                   <h3 className="font-medium mb-3">Active Shares</h3>
                   <div className="space-y-2">
-                    <ShareItem
-                      provider="Dr. Smith (Cardiologist)"
-                      expiresIn="2 hours"
-                      accessCount={3}
-                      onRevoke={() => console.log("Revoke share")}
-                    />
-                    <ShareItem
-                      provider="City Hospital (Referral)"
-                      expiresIn="20 hours"
-                      accessCount={1}
-                      onRevoke={() => console.log("Revoke share")}
-                    />
+                    {shareToken ? (
+                      <ShareItem
+                        shareUrl={`${window.location.origin}/share/${shareToken}`}
+                        expiresIn={`${shareExpiry} hours`}
+                        onRevoke={() => {
+                          setShareToken(null);
+                          setShareQR("");
+                        }}
+                      />
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        No active share link has been generated in this session.
+                      </p>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -475,13 +527,9 @@ export default function ReportsAndExportPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm space-y-2">
-            <p>✓ All exports are encrypted and password-protected</p>
-            <p>
-              ✓ Share links include audit logging - you can see who accessed your
-              data
-            </p>
-            <p>✓ You can revoke access at any time</p>
-            <p>✓ Compliance with HIPAA and medical data protection standards</p>
+            <p>Exports are generated locally from the patient data currently loaded in the app.</p>
+            <p>The password field is shown only when password protection is selected before export.</p>
+            <p>Temporary share links can be revoked from this page during the current session.</p>
           </CardContent>
         </Card>
       </div>
@@ -489,49 +537,21 @@ export default function ReportsAndExportPage() {
   );
 }
 
-function ReportCard({
-  title,
-  description,
-  icon,
-  onClick,
-}: {
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={onClick}>
-      <CardContent className="pt-6">
-        <div className="flex items-start gap-3 mb-3">{icon}</div>
-        <h3 className="font-semibold mb-1">{title}</h3>
-        <p className="text-sm text-muted-foreground">{description}</p>
-        <Button variant="link" className="mt-3 h-auto p-0">
-          Generate →
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
-
 function ShareItem({
-  provider,
+  shareUrl,
   expiresIn,
-  accessCount,
   onRevoke,
 }: {
-  provider: string;
+  shareUrl: string;
   expiresIn: string;
-  accessCount: number;
   onRevoke: () => void;
 }) {
   return (
     <div className="flex items-center justify-between p-3 border rounded-lg">
       <div className="space-y-1">
-        <p className="font-medium text-sm">{provider}</p>
+        <p className="font-medium text-sm break-all">{shareUrl}</p>
         <div className="flex gap-4 text-xs text-muted-foreground">
           <span>Expires in {expiresIn}</span>
-          <span>{accessCount} access{accessCount !== 1 ? "es" : ""}</span>
         </div>
       </div>
       <Button variant="ghost" size="sm" onClick={onRevoke}>
