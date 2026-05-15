@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
-import { LayoutDashboard, History, Pill, Bot, User, LogOut, Menu, X, PanelLeftClose, PanelLeftOpen, Calendar, Heart, TrendingUp, MessageSquare, FileText } from 'lucide-react';
+import { LayoutDashboard, History, Pill, Bot, User, LogOut, Menu, X, PanelLeftClose, PanelLeftOpen, Calendar, TrendingUp, MessageSquare, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SmartSearch } from '@/components/SmartSearch';
@@ -16,7 +16,6 @@ const navItems = [
   { path: '/prescriptions', icon: Pill, label: 'Adherence' },
   { path: '/ai-assistant', icon: Bot, label: 'AI Assistant' },
   { path: '/appointments', icon: Calendar, label: 'Appointments' },
-  { path: '/vital-signs', icon: Heart, label: 'Vital Signs' },
   { path: '/analytics', icon: TrendingUp, label: 'Analytics' },
   { path: '/chat', icon: MessageSquare, label: 'Messages' },
   { path: '/reports', icon: FileText, label: 'Reports' },
