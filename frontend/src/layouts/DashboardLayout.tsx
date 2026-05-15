@@ -1,8 +1,10 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
-import { LayoutDashboard, History, Pill, Bot, User, LogOut, Menu, X, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { LayoutDashboard, History, Pill, Bot, User, LogOut, Menu, X, PanelLeftClose, PanelLeftOpen, Calendar, TrendingUp, MessageSquare, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ThemeToggle } from '@/components/ThemeToggle';
+import { SmartSearch } from '@/components/SmartSearch';
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -13,6 +15,10 @@ const navItems = [
   { path: '/medical-history', icon: History, label: 'Medical History' },
   { path: '/prescriptions', icon: Pill, label: 'Adherence' },
   { path: '/ai-assistant', icon: Bot, label: 'AI Assistant' },
+  { path: '/appointments', icon: Calendar, label: 'Appointments' },
+  { path: '/analytics', icon: TrendingUp, label: 'Analytics' },
+  { path: '/chat', icon: MessageSquare, label: 'Messages' },
+  { path: '/reports', icon: FileText, label: 'Reports' },
   { path: '/profile', icon: User, label: 'Profile' },
 ];
 
@@ -190,8 +196,16 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 p-4 lg:p-8 max-w-7xl mx-auto w-full">
-          {children}
+        <main className="flex-1 flex flex-col min-h-screen">
+          {/* Desktop Top Bar with Search and Theme */}
+          <header className="hidden lg:flex sticky top-0 z-30 bg-background/95 backdrop-blur-lg border-b border-border items-center justify-between px-8 py-3 gap-4">
+            <SmartSearch />
+            <ThemeToggle />
+          </header>
+
+          <div className="flex-1 p-4 lg:p-8 max-w-7xl mx-auto w-full">
+            {children}
+          </div>
         </main>
       </div>
     </div>
