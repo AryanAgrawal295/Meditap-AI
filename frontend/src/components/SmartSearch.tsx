@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, Stethoscope, Calendar, Pill, FileText, Loader, AlertCircle } from "lucide-react";
+import { Search, Stethoscope, Pill, FileText, Loader, AlertCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Command,
@@ -69,13 +69,6 @@ export function SmartSearch() {
   // Quick page access
   const quickPages: SearchResult[] = [
     {
-      id: "dash",
-      title: "Dashboard",
-      type: "page",
-      icon: <Stethoscope className="h-4 w-4" />,
-      action: () => navigate("/dashboard"),
-    },
-    {
       id: "medical",
       title: "Medical History",
       type: "page",
@@ -88,13 +81,6 @@ export function SmartSearch() {
       type: "page",
       icon: <Pill className="h-4 w-4" />,
       action: () => navigate("/prescriptions"),
-    },
-    {
-      id: "appointments",
-      title: "Appointments",
-      type: "appointment",
-      icon: <Calendar className="h-4 w-4" />,
-      action: () => navigate("/appointments"),
     },
   ];
 
@@ -320,7 +306,6 @@ export function SmartSearch() {
                 state: {
                   searchQuery: searchQuery,
                   highlightId: result.id,
-                  patientId: result.patientId || currentPatientId || patient?.id,
                   patientId: result.patientId || currentPatientId || patient?.id,
                   matchContext: result.matchContext,
                 },

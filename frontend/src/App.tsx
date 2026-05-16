@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppProvider } from "@/contexts/AppContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import MedicineAlarmManager from "@/components/MedicineAlarmManager";
@@ -13,17 +13,14 @@ import PatientLookupPage from "./pages/PatientLookupPage";
 import PatientRegistrationPage from "./pages/PatientRegistrationPage";
 import RoleSelectionPage from "./pages/RoleSelectionPage";
 import AuthenticationPage from "./pages/AuthenticationPage";
-import DashboardPage from "./pages/DashboardPage";
 import MedicalHistoryPage from "./pages/MedicalHistoryPage";
 import PrescriptionsPage from "./pages/PrescriptionsPage";
 import AIAssistantPage from "./pages/AIAssistantPage";
 import ProfilePage from "./pages/ProfilePage";
 import EditProfilePage from "./pages/EditProfilePage";
 import AddMedicalRecordPage from "./pages/AddMedicalRecordPage";
-import AppointmentsPage from "./pages/AppointmentsPage";
 import VitalSignsPage from "./pages/VitalSignsPage";
 import AnalyticsDashboardPage from "./pages/AnalyticsDashboardPage";
-import ChatPage from "./pages/ChatPage";
 import ReportsAndExportPage from "./pages/ReportsAndExportPage";
 import NotFound from "./pages/NotFound";
 
@@ -46,14 +43,14 @@ const App = () => (
               <Route path="/register-patient" element={<PatientRegistrationPage />} />
               <Route path="/role-selection" element={<RoleSelectionPage />} />
               <Route path="/authentication" element={<AuthenticationPage />} />
-              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/dashboard" element={<Navigate to="/medical-history" replace />} />
               <Route path="/medical-history" element={<MedicalHistoryPage />} />
               <Route path="/prescriptions" element={<PrescriptionsPage />} />
               <Route path="/ai-assistant" element={<AIAssistantPage />} />
-              <Route path="/appointments" element={<AppointmentsPage />} />
+              <Route path="/appointments" element={<Navigate to="/medical-history" replace />} />
               <Route path="/vital-signs" element={<VitalSignsPage />} />
               <Route path="/analytics" element={<AnalyticsDashboardPage />} />
-              <Route path="/chat" element={<ChatPage />} />
+              <Route path="/chat" element={<Navigate to="/medical-history" replace />} />
               <Route path="/reports" element={<ReportsAndExportPage />} />
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/edit-profile" element={<EditProfilePage />} />

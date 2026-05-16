@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import {
   Bot,
-  Calendar,
   Camera,
   CheckCircle2,
   ChevronLeft,
@@ -11,9 +10,7 @@ import {
   Clock,
   FileText,
   HelpCircle,
-  LayoutDashboard,
   MapPinned,
-  MessageCircle,
   Pause,
   Pill,
   Play,
@@ -50,16 +47,8 @@ type SpotlightShape = {
 
 const demoSteps: DemoStep[] = [
   {
-    title: 'Main dashboard',
-    path: '/dashboard?helpmanDemo=1',
-    icon: LayoutDashboard,
-    target: 'main h1, main h2, main h3',
-    explain: 'This is the main health board.',
-    doThis: 'See patient summary, recent records, and quick health status in one place.',
-  },
-  {
     title: 'Side menu',
-    path: '/dashboard?helpmanDemo=1',
+    path: '/medical-history?helpmanDemo=1',
     icon: MapPinned,
     target: 'aside',
     shape: 'rect',
@@ -163,28 +152,12 @@ const demoSteps: DemoStep[] = [
     doThis: 'Type a simple question about reports, medicines, or patient history.',
   },
   {
-    title: 'Appointments',
-    path: '/appointments?helpmanDemo=1',
-    icon: Calendar,
-    target: 'main h1',
-    explain: 'This page is for doctor visits.',
-    doThis: 'Check upcoming appointments and visit details.',
-  },
-  {
     title: 'Analytics',
     path: '/analytics?helpmanDemo=1',
     icon: TrendingUp,
     target: 'main h1',
     explain: 'This page turns health data into charts.',
     doThis: 'Look at trends to understand changes quickly.',
-  },
-  {
-    title: 'Messages',
-    path: '/chat?helpmanDemo=1',
-    icon: MessageCircle,
-    target: 'main h1',
-    explain: 'This page is for conversations.',
-    doThis: 'Read and send updates about the patient.',
   },
   {
     title: 'Reports',

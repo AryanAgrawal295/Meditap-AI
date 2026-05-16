@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   Clock,
   Edit3,
+  FileImage,
   HeartPulse,
   Pill,
   RefreshCcw,
@@ -826,10 +827,16 @@ export default function PrescriptionsPage() {
   const [medicineNameValue, setMedicineNameValue] = useState("");
   const [isUpdatingMedicine, setIsUpdatingMedicine] = useState(false);
   const [isUploadingPrescription, setIsUploadingPrescription] = useState(false);
+  const [isRecordPickerOpen, setIsRecordPickerOpen] = useState(false);
+  const [selectedPrescriptionId, setSelectedPrescriptionId] = useState("");
+  const [isAddingFromRecord, setIsAddingFromRecord] = useState(false);
+  const [deletingPrescriptionKey, setDeletingPrescriptionKey] = useState<string | null>(null);
   const [updatingDoseId, setUpdatingDoseId] = useState<string | null>(null);
   const [openMedicineId, setOpenMedicineId] = useState<string | null>(null);
   const [showPrescriptionFiles, setShowPrescriptionFiles] = useState(false);
   const [isDetailsSidebarMinimized, setIsDetailsSidebarMinimized] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()));
+  const prescriptionInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const alarmDose = (location.state as { alarmVerificationDose?: TimelineDose } | null)
@@ -1184,6 +1191,13 @@ export default function PrescriptionsPage() {
                 ? "Uploading..."
                 : uploadButtonLabel}
             </Button>
+            <input
+              ref={prescriptionInputRef}
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+              className="hidden"
+              onChange={handlePrescriptionUpload}
+            />
           </div>
         </div>
 

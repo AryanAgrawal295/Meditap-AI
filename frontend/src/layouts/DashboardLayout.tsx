@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
-import { LayoutDashboard, History, Pill, Bot, User, LogOut, Menu, X, PanelLeftClose, PanelLeftOpen, Calendar, TrendingUp, MessageSquare, FileText } from 'lucide-react';
+import { History, Pill, Bot, User, LogOut, Menu, X, PanelLeftClose, PanelLeftOpen, TrendingUp, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SmartSearch } from '@/components/SmartSearch';
@@ -11,13 +11,10 @@ interface DashboardLayoutProps {
 }
 
 const navItems = [
-  { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { path: '/medical-history', icon: History, label: 'Medical History' },
   { path: '/prescriptions', icon: Pill, label: 'Adherence' },
   { path: '/ai-assistant', icon: Bot, label: 'AI Assistant' },
-  { path: '/appointments', icon: Calendar, label: 'Appointments' },
   { path: '/analytics', icon: TrendingUp, label: 'Analytics' },
-  { path: '/chat', icon: MessageSquare, label: 'Messages' },
   { path: '/reports', icon: FileText, label: 'Reports' },
   { path: '/profile', icon: User, label: 'Profile' },
 ];
