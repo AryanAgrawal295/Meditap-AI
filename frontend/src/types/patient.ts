@@ -97,6 +97,8 @@ export interface MedicationPrescriptionFile {
   fileUrl?: string;
   filePublicId?: string;
   fileName?: string;
+  fileResourceType?: string;
+  fileFormat?: string;
   uploadedAt?: string;
 }
 
@@ -109,6 +111,8 @@ export interface MedicationPlan {
   sourceFileUrl?: string;
   sourceFilePublicId?: string;
   sourceFileName?: string;
+  sourceFileResourceType?: string;
+  sourceFileFormat?: string;
   prescriptionFiles?: MedicationPrescriptionFile[];
   medicines: MedicationMedicine[];
   agentTrace: {

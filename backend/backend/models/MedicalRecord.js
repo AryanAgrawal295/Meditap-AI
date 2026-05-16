@@ -36,6 +36,10 @@ const medicalRecordSchema = new mongoose.Schema(
     department: String,
     description: String,
     attachments: [attachmentSchema],
+    medicationPlanId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "MedicationPlan",
+    },
     recordType: {
       type: String,
       enum: ["consultation", "diagnosis", "lab-test", "surgery", "admission", "discharge", "emergency"],

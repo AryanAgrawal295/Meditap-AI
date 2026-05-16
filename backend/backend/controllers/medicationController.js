@@ -41,6 +41,8 @@ function toClientPlan(plan) {
       }) || file.fileUrl,
     filePublicId: file.filePublicId,
     fileName: file.fileName,
+    fileResourceType: file.fileResourceType,
+    fileFormat: file.fileFormat,
     uploadedAt: file.uploadedAt,
   }));
   const sourceFileUrl =
@@ -73,6 +75,8 @@ function toClientPlan(plan) {
     sourceFileUrl,
     sourceFilePublicId: plan.sourceFilePublicId,
     sourceFileName: plan.sourceFileName,
+    sourceFileResourceType: plan.sourceFileResourceType,
+    sourceFileFormat: plan.sourceFileFormat,
     prescriptionFiles: normalizedPrescriptionFiles,
     medicines: plan.medicines,
     agentTrace: plan.agentTrace,
