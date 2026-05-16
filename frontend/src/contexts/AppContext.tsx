@@ -1,6 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { AuthUser, MedicalAttachment, MedicalRecord, MedicationPlan, Patient, Prescription, UserRole } from '@/types/patient';
 import { apiRequest } from '@/lib/api';
+import {
+  helpmanDemoMedicalRecords,
+  helpmanDemoMedicationPlans,
+  helpmanDemoPatient,
+  helpmanDemoPrescriptions,
+} from '@/data/helpmanDemoData';
 import { derivePrescriptions, mapBackendMedicalRecord, mapBackendPatient } from '@/lib/mappers';
 import {
   clearStoredSession,
@@ -182,6 +188,11 @@ function getBootstrapPatientHints() {
   };
 }
 
+function isHelpmanDemoRequested() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('helpmanDemo') === '1' || window.sessionStorage.getItem('meditap-helpman-demo') === '1';
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [patient, setPatient] = useState<Patient | null>(null);
   const [role, setRoleState] = useState<UserRole | null>(parseRole(getStoredRole()));
@@ -192,6 +203,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [medicalRecords, setMedicalRecords] = useState<MedicalRecord[]>([]);
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [medicationPlans, setMedicationPlans] = useState<MedicationPlan[]>([]);
+  const [demoMedicationPlans, setDemoMedicationPlans] = useState<MedicationPlan[]>(helpmanDemoMedicationPlans);
+  const [isHelpmanDemo, setIsHelpmanDemo] = useState(isHelpmanDemoRequested);
   const [currentPatientId, setCurrentPatientId] = useState<string | null>(getStoredPatientId());
 
   const setRole = useCallback((nextRole: UserRole | null) => {
@@ -229,6 +242,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener('meditap:auth-expired', resetSession);
     };
   }, [resetSession]);
+
+  useEffect(() => {
+    const syncDemoMode = () => {
+      setIsHelpmanDemo(isHelpmanDemoRequested());
+    };
+
+    window.addEventListener('meditap:helpman-demo', syncDemoMode);
+    window.addEventListener('popstate', syncDemoMode);
+
+    return () => {
+      window.removeEventListener('meditap:helpman-demo', syncDemoMode);
+      window.removeEventListener('popstate', syncDemoMode);
+    };
+  }, []);
 
   const fetchPatientProfile = useCallback(async (patientId: string) => {
     setIsLoadingPatient(true);
@@ -339,6 +366,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (isHelpmanDemo) {
+      setIsInitializing(false);
+      return undefined;
+    }
+
     let cancelled = false;
 
     async function bootstrap() {
@@ -373,9 +405,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [currentPatientId, fetchMedicalTimeline, fetchPatientProfile, fetchQuickAccessPatient, isAuthenticated]);
+  }, [currentPatientId, fetchMedicalTimeline, fetchPatientProfile, fetchQuickAccessPatient, isAuthenticated, isHelpmanDemo]);
 
   useEffect(() => {
+    if (isHelpmanDemo) {
+      return;
+    }
+
     if (!isAuthenticated || !currentPatientId) {
       return;
     }
@@ -383,9 +419,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     fetchMedicalTimeline(currentPatientId).catch((error) => {
       console.error('Failed to refresh medical timeline', error);
     });
-  }, [currentPatientId, fetchMedicalTimeline, isAuthenticated]);
+  }, [currentPatientId, fetchMedicalTimeline, isAuthenticated, isHelpmanDemo]);
 
   useEffect(() => {
+    if (isHelpmanDemo) {
+      return;
+    }
+
     if (!isAuthenticated || !currentPatientId) {
       return;
     }
@@ -397,7 +437,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .catch((error) => {
         console.error('Failed to refresh medication plans', error);
       });
-  }, [currentPatientId, isAuthenticated]);
+  }, [currentPatientId, isAuthenticated, isHelpmanDemo]);
 
   const completeAuthentication = useCallback(async ({
     accessToken,
@@ -514,6 +554,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     attachments?: MedicalAttachment[];
     prescriptions?: string[];
   }) => {
+    if (isHelpmanDemo) {
+      throw new Error('Demo mode uses local John Smith data only.');
+    }
+
     if (!currentPatientId) {
       throw new Error('No patient selected');
     }
@@ -541,9 +585,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     setMedicalRecords((prev) => [mapBackendMedicalRecord(createdRecord), ...prev]);
     setPrescriptions((prev) => [...derivePrescriptions([createdRecord]), ...prev]);
-  }, [currentPatientId]);
+  }, [currentPatientId, isHelpmanDemo]);
 
   const uploadMedicalReport = useCallback(async (file: File) => {
+    if (isHelpmanDemo) {
+      throw new Error('Demo mode does not upload files.');
+    }
+
     if (!currentPatientId) {
       throw new Error('No patient selected');
     }
@@ -574,9 +622,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       format: response.file.format || null,
       accessUrl: response.file.accessUrl || null,
     };
-  }, [currentPatientId]);
+  }, [currentPatientId, isHelpmanDemo]);
 
   const uploadPrescriptionForSchedule = useCallback(async (file: File, scheduleId?: string) => {
+    if (isHelpmanDemo) {
+      return demoMedicationPlans.find((plan) => plan.id === scheduleId) || demoMedicationPlans[0];
+    }
+
     if (!currentPatientId) {
       throw new Error('No patient selected');
     }
@@ -585,8 +637,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     formData.append('file', file);
     formData.append('patientId', currentPatientId);
 
+    const targetScheduleId = scheduleId || medicationPlans[0]?.id;
+
     const response = await apiRequest<{ plan: MedicationPlan }>(
-      scheduleId ? `/medication/${scheduleId}/prescription` : '/medication/prescription',
+      targetScheduleId ? `/medication/${targetScheduleId}/prescription` : '/medication/prescription',
       {
       method: 'POST',
       auth: true,
@@ -595,16 +649,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
 
     setMedicationPlans((prev) => {
-      if (scheduleId) {
+      if (targetScheduleId) {
         return prev.map((plan) => (plan.id === response.plan.id ? response.plan : plan));
       }
 
       return [response.plan, ...prev];
     });
     return response.plan;
-  }, [currentPatientId]);
+  }, [currentPatientId, demoMedicationPlans, isHelpmanDemo, medicationPlans]);
 
   const processPrescriptionOCR = useCallback(async (file: File) => {
+    if (isHelpmanDemo) {
+      throw new Error('Demo mode does not process uploaded files.');
+    }
+
     const formData = new FormData();
     formData.append('file', file);
 
@@ -638,7 +696,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       method: 'POST',
       body: formData,
     });
-  }, []);
+  }, [isHelpmanDemo]);
 
   const verifyDoseWithAI = useCallback(async (payload: {
     planId: string;
@@ -648,6 +706,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     gestureDetected: boolean;
     confidence: number;
   }) => {
+    if (isHelpmanDemo) {
+      setDemoMedicationPlans((prev) =>
+        prev.map((plan) =>
+          plan.id === payload.planId
+            ? {
+                ...plan,
+                medicines: plan.medicines.map((medicine) =>
+                  medicine._id === payload.medicineId
+                    ? {
+                        ...medicine,
+                        doses: medicine.doses.map((dose) =>
+                          dose._id === payload.doseId
+                            ? {
+                                ...dose,
+                                status: payload.pillDetected && payload.gestureDetected ? 'taken' : dose.status,
+                                verifiedByAI: payload.pillDetected && payload.gestureDetected,
+                                takenAt: payload.pillDetected && payload.gestureDetected ? new Date().toISOString() : dose.takenAt,
+                              }
+                            : dose,
+                        ),
+                      }
+                    : medicine,
+                ),
+              }
+            : plan,
+        ),
+      );
+      return;
+    }
+
     const response = await apiRequest<{ plan: MedicationPlan }>(
       `/medication/${payload.planId}/medicines/${payload.medicineId}/doses/${payload.doseId}/verify`,
       {
@@ -662,7 +750,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
 
     setMedicationPlans((prev) => prev.map((plan) => (plan.id === response.plan.id ? response.plan : plan)));
-  }, []);
+  }, [isHelpmanDemo]);
 
   const updateDoseStatus = useCallback(async (payload: {
     planId: string;
@@ -670,6 +758,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     doseId: string;
     status: 'pending' | 'taken' | 'missed';
   }) => {
+    if (isHelpmanDemo) {
+      setDemoMedicationPlans((prev) =>
+        prev.map((plan) =>
+          plan.id === payload.planId
+            ? {
+                ...plan,
+                medicines: plan.medicines.map((medicine) =>
+                  medicine._id === payload.medicineId
+                    ? {
+                        ...medicine,
+                        doses: medicine.doses.map((dose) =>
+                          dose._id === payload.doseId
+                            ? {
+                                ...dose,
+                                status: payload.status,
+                                takenAt: payload.status === 'taken' ? new Date().toISOString() : dose.takenAt,
+                                missedAt: payload.status === 'missed' ? new Date().toISOString() : dose.missedAt,
+                              }
+                            : dose,
+                        ),
+                      }
+                    : medicine,
+                ),
+              }
+            : plan,
+        ),
+      );
+      return;
+    }
+
     const plan = await apiRequest<MedicationPlan>(
       `/medication/${payload.planId}/medicines/${payload.medicineId}/doses/${payload.doseId}/status`,
       {
@@ -682,7 +800,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
 
     setMedicationPlans((prev) => prev.map((item) => (item.id === plan.id ? plan : item)));
-  }, []);
+  }, [isHelpmanDemo]);
 
   const updateDoseSchedule = useCallback(async (payload: {
     planId: string;
@@ -690,6 +808,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     doseId: string;
     scheduledAt: string;
   }) => {
+    if (isHelpmanDemo) {
+      setDemoMedicationPlans((prev) =>
+        prev.map((plan) =>
+          plan.id === payload.planId
+            ? {
+                ...plan,
+                medicines: plan.medicines.map((medicine) =>
+                  medicine._id === payload.medicineId
+                    ? {
+                        ...medicine,
+                        doses: medicine.doses.map((dose) =>
+                          dose._id === payload.doseId
+                            ? {
+                                ...dose,
+                                scheduledAt: payload.scheduledAt,
+                              }
+                            : dose,
+                        ),
+                      }
+                    : medicine,
+                ),
+              }
+            : plan,
+        ),
+      );
+      return;
+    }
+
     const plan = await apiRequest<MedicationPlan>(
       `/medication/${payload.planId}/medicines/${payload.medicineId}/doses/${payload.doseId}/schedule`,
       {
@@ -702,13 +848,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
 
     setMedicationPlans((prev) => prev.map((item) => (item.id === plan.id ? plan : item)));
-  }, []);
+  }, [isHelpmanDemo]);
 
   const updateMedicine = useCallback(async (payload: {
     planId: string;
     medicineId: string;
     name: string;
   }) => {
+    if (isHelpmanDemo) {
+      setDemoMedicationPlans((prev) =>
+        prev.map((plan) =>
+          plan.id === payload.planId
+            ? {
+                ...plan,
+                medicines: plan.medicines.map((medicine) =>
+                  medicine._id === payload.medicineId
+                    ? {
+                        ...medicine,
+                        name: payload.name,
+                      }
+                    : medicine,
+                ),
+              }
+            : plan,
+        ),
+      );
+      return;
+    }
+
     const plan = await apiRequest<MedicationPlan>(
       `/medication/${payload.planId}/medicines/${payload.medicineId}`,
       {
@@ -721,12 +888,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
 
     setMedicationPlans((prev) => prev.map((item) => (item.id === plan.id ? plan : item)));
-  }, []);
+  }, [isHelpmanDemo]);
 
   const updateMedicationPlanStatus = useCallback(async (payload: {
     planId: string;
     status: MedicationPlan['status'];
   }) => {
+    if (isHelpmanDemo) {
+      setDemoMedicationPlans((prev) =>
+        prev.map((plan) =>
+          plan.id === payload.planId
+            ? {
+                ...plan,
+                status: payload.status,
+              }
+            : plan,
+        ),
+      );
+      return;
+    }
+
     const plan = await apiRequest<MedicationPlan>(
       `/medication/plans/${payload.planId}/status`,
       {
@@ -739,16 +920,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
 
     setMedicationPlans((prev) => prev.map((item) => (item.id === plan.id ? plan : item)));
-  }, []);
+  }, [isHelpmanDemo]);
 
   const deleteMedicationPlan = useCallback(async (planId: string) => {
+    if (isHelpmanDemo) {
+      setDemoMedicationPlans((prev) => prev.filter((plan) => plan.id !== planId));
+      return;
+    }
+
     await apiRequest<void>(`/medication/plans/${planId}`, {
       method: 'DELETE',
       auth: true,
     });
 
     setMedicationPlans((prev) => prev.filter((plan) => plan.id !== planId));
-  }, []);
+  }, [isHelpmanDemo]);
 
   const updatePatientProfile = useCallback(async (payload: {
     name: string;
@@ -758,6 +944,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     allergies: string[];
     emergencyContact: Patient['emergencyContact'];
   }) => {
+    if (isHelpmanDemo) {
+      throw new Error('Demo mode uses local John Smith data only.');
+    }
+
     if (!currentPatientId) {
       throw new Error('No patient selected');
     }
@@ -776,9 +966,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
 
     setPatient(mapBackendPatient(updatedPatient));
-  }, [currentPatientId]);
+  }, [currentPatientId, isHelpmanDemo]);
 
   const askAssistant = useCallback(async (question: string) => {
+    if (isHelpmanDemo) {
+      return `Demo answer for John Smith: use the adherence page to review pending doses, verify medicine intake, and keep Metformin, Lisinopril, and Atorvastatin on schedule.`;
+    }
+
     if (!currentPatientId) {
       throw new Error('No patient selected');
     }
@@ -793,23 +987,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
 
     return response.answer;
-  }, [currentPatientId]);
+  }, [currentPatientId, isHelpmanDemo]);
 
   const logout = useCallback(() => {
     resetSession();
   }, [resetSession]);
 
+  const effectivePatient = isHelpmanDemo ? helpmanDemoPatient : patient;
+  const effectiveRole = isHelpmanDemo ? 'doctor' : role;
+  const effectiveAuthUser = useMemo(
+    () =>
+      isHelpmanDemo
+        ? {
+            id: 'DEMO-USER',
+            name: 'Helpman Demo',
+            email: 'demo@meditap.local',
+            role: 'doctor' as UserRole,
+          }
+        : authUser,
+    [authUser, isHelpmanDemo],
+  );
+  const effectiveIsAuthenticated = isHelpmanDemo || isAuthenticated;
+  const effectiveMedicalRecords = isHelpmanDemo ? helpmanDemoMedicalRecords : medicalRecords;
+  const effectivePrescriptions = isHelpmanDemo ? helpmanDemoPrescriptions : prescriptions;
+  const effectiveMedicationPlans = isHelpmanDemo ? demoMedicationPlans : medicationPlans;
+  const effectiveCurrentPatientId = isHelpmanDemo ? helpmanDemoPatient.id : currentPatientId;
+
   const value = useMemo(() => ({
-    patient,
-    role,
-    authUser,
-    isAuthenticated,
+    patient: effectivePatient,
+    role: effectiveRole,
+    authUser: effectiveAuthUser,
+    isAuthenticated: effectiveIsAuthenticated,
     isInitializing,
     isLoadingPatient,
-    medicalRecords,
-    prescriptions,
-    medicationPlans,
-    currentPatientId,
+    medicalRecords: effectiveMedicalRecords,
+    prescriptions: effectivePrescriptions,
+    medicationPlans: effectiveMedicationPlans,
+    currentPatientId: effectiveCurrentPatientId,
     setRole,
     setPatientContext,
     resolvePatientContext,
@@ -834,22 +1048,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }), [
     addMedicalRecord,
     askAssistant,
-    authUser,
-    currentPatientId,
     deleteMedicationPlan,
-    isAuthenticated,
+    effectiveAuthUser,
+    effectiveCurrentPatientId,
+    effectiveIsAuthenticated,
+    effectiveMedicalRecords,
+    effectiveMedicationPlans,
+    effectivePatient,
+    effectivePrescriptions,
+    effectiveRole,
     isInitializing,
     isLoadingPatient,
     loginWithPassword,
     loginWithPatientPassword,
     logout,
-    medicalRecords,
-    medicationPlans,
-    patient,
-    prescriptions,
     registerPatient,
     requestOtp,
-    role,
     resolvePatientContext,
     setPatientContext,
     setRole,
