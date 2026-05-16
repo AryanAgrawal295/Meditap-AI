@@ -125,6 +125,11 @@ interface AppContextType {
     }>;
   }>;
   uploadPrescriptionForSchedule: (file: File, scheduleId?: string) => Promise<MedicationPlan>;
+  addPrescriptionFromRecordToSchedule: (prescription: Prescription, scheduleId?: string) => Promise<MedicationPlan>;
+  deletePrescriptionFromSchedule: (payload: {
+    planId: string;
+    prescriptionIndex: number;
+  }) => Promise<void>;
   verifyDoseWithAI: (payload: {
     planId: string;
     medicineId: string;
@@ -658,6 +663,164 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return response.plan;
   }, [currentPatientId, demoMedicationPlans, isHelpmanDemo, medicationPlans]);
 
+  const addPrescriptionFromRecordToSchedule = useCallback(async (prescription: Prescription, scheduleId?: string) => {
+    const targetScheduleId = scheduleId || medicationPlans[0]?.id;
+
+    if (isHelpmanDemo) {
+      const nextIndex = Math.max(
+        0,
+        ...demoMedicationPlans.flatMap((plan) => [
+          ...(plan.prescriptionFiles || []).map((file) => Number(file.index) || 0),
+          ...plan.medicines.map((medicine) => Number(medicine.prescriptionIndex) || 0),
+        ]),
+      ) + 1;
+      const tag = `Prescription ${nextIndex}`;
+      const importedMedicines = prescription.medicines.map((medicine, index) => ({
+        _id: `DEMO-IMPORTED-${nextIndex}-${index}`,
+        name: medicine.name,
+        dosage: medicine.dosage || 'As prescribed',
+        timing: ['morning'],
+        duration: medicine.duration || '7 days',
+        durationDays: 7,
+        frequency: medicine.frequency || 'Once daily',
+        frequencyPerDay: 1,
+        quantityPerDose: 1,
+        stockQuantity: 7,
+        prescriptionIndex: nextIndex,
+        prescriptionTag: tag,
+        sourceFileName: 'Medical record',
+        refillReminderAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
+        doses: Array.from({ length: 7 }, (_, doseIndex) => {
+          const scheduledAt = new Date();
+          scheduledAt.setDate(scheduledAt.getDate() + doseIndex);
+          scheduledAt.setHours(8, 0, 0, 0);
+          return {
+            _id: `DEMO-IMPORTED-${nextIndex}-${index}-DOSE-${doseIndex}`,
+            scheduledAt: scheduledAt.toISOString(),
+            timingLabel: 'morning',
+            status: 'pending' as const,
+            reminderLevel: 0,
+            verifiedByAI: false,
+          };
+        }),
+      }));
+
+      let updatedPlan: MedicationPlan | null = null;
+      setDemoMedicationPlans((prev) => {
+        const targetId = targetScheduleId || prev[0]?.id;
+        if (targetId) {
+          return prev.map((plan) => {
+            if (plan.id !== targetId) return plan;
+            updatedPlan = {
+              ...plan,
+              prescriptionFiles: [
+                ...(plan.prescriptionFiles || []),
+                {
+                  index: nextIndex,
+                  tag,
+                  fileName: `Medical record - ${prescription.doctor}`,
+                  uploadedAt: prescription.date,
+                },
+              ],
+              medicines: [...plan.medicines, ...importedMedicines],
+              updatedAt: new Date().toISOString(),
+            };
+            return updatedPlan;
+          });
+        }
+
+        updatedPlan = {
+          id: `DEMO-PLAN-${Date.now()}`,
+          patient: helpmanDemoPatient.id,
+          source: 'import',
+          status: 'active',
+          prescriptionFiles: [
+            {
+              index: nextIndex,
+              tag,
+              fileName: `Medical record - ${prescription.doctor}`,
+              uploadedAt: prescription.date,
+            },
+          ],
+          medicines: importedMedicines,
+          agentTrace: [],
+          adherence: { doses: [], taken: 0, missed: 0, pending: importedMedicines.length * 7, adherenceRate: 0 },
+          refillAlerts: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        return [updatedPlan, ...prev];
+      });
+
+      return updatedPlan || demoMedicationPlans[0];
+    }
+
+    if (!currentPatientId) {
+      throw new Error('No patient selected');
+    }
+
+    const response = await apiRequest<{ plan: MedicationPlan }>(
+      targetScheduleId ? `/medication/${targetScheduleId}/prescription/import` : '/medication/prescription/import',
+      {
+        method: 'POST',
+        auth: true,
+        body: {
+          patientId: currentPatientId,
+          planId: targetScheduleId,
+          prescriptionId: prescription.id,
+          doctor: prescription.doctor,
+          date: prescription.date,
+          notes: prescription.notes,
+          medicines: prescription.medicines,
+        },
+      }
+    );
+
+    setMedicationPlans((prev) => {
+      if (targetScheduleId) {
+        return prev.map((plan) => (plan.id === response.plan.id ? response.plan : plan));
+      }
+
+      return [response.plan, ...prev];
+    });
+    return response.plan;
+  }, [currentPatientId, demoMedicationPlans, isHelpmanDemo, medicationPlans]);
+
+  const deletePrescriptionFromSchedule = useCallback(async (payload: {
+    planId: string;
+    prescriptionIndex: number;
+  }) => {
+    if (isHelpmanDemo) {
+      setDemoMedicationPlans((prev) =>
+        prev.map((plan) =>
+          plan.id === payload.planId
+            ? {
+                ...plan,
+                prescriptionFiles: (plan.prescriptionFiles || []).filter(
+                  (file) => Number(file.index) !== payload.prescriptionIndex,
+                ),
+                medicines: plan.medicines.filter(
+                  (medicine) => (Number(medicine.prescriptionIndex) || 1) !== payload.prescriptionIndex,
+                ),
+                updatedAt: new Date().toISOString(),
+              }
+            : plan,
+        ),
+      );
+      return;
+    }
+
+    const plan = await apiRequest<MedicationPlan>(
+      `/medication/plans/${payload.planId}/prescriptions/${payload.prescriptionIndex}`,
+      {
+        method: 'DELETE',
+        auth: true,
+      }
+    );
+
+    setMedicationPlans((prev) => prev.map((item) => (item.id === plan.id ? plan : item)));
+  }, [isHelpmanDemo]);
+
   const processPrescriptionOCR = useCallback(async (file: File) => {
     if (isHelpmanDemo) {
       throw new Error('Demo mode does not process uploaded files.');
@@ -1036,6 +1199,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     uploadMedicalReport,
     processPrescriptionOCR,
     uploadPrescriptionForSchedule,
+    addPrescriptionFromRecordToSchedule,
+    deletePrescriptionFromSchedule,
     verifyDoseWithAI,
     updateDoseStatus,
     updateDoseSchedule,
@@ -1047,8 +1212,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     logout,
   }), [
     addMedicalRecord,
+    addPrescriptionFromRecordToSchedule,
     askAssistant,
     deleteMedicationPlan,
+    deletePrescriptionFromSchedule,
     effectiveAuthUser,
     effectiveCurrentPatientId,
     effectiveIsAuthenticated,

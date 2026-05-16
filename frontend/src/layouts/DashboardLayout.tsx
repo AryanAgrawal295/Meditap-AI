@@ -64,8 +64,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       {/* Desktop Sidebar */}
       <aside
         className={cn(
-          "hidden lg:flex flex-col bg-card border-r border-border sticky top-0 h-screen overflow-y-auto transition-all duration-200",
-          sidebarMinimized ? "w-20 p-4" : "w-72 p-6",
+          "hidden lg:flex shrink-0 flex-col bg-card border-r border-border sticky top-0 h-screen overflow-y-auto shadow-sm transition-all duration-200",
+          sidebarMinimized ? "w-24 px-5 py-6" : "w-72 p-6",
         )}
       >
         {/* Logo */}
@@ -89,7 +89,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           onClick={() => setSidebarMinimized((value) => !value)}
           className={cn(
             "mb-4 flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground transition-all duration-200 hover:bg-accent hover:text-accent-foreground",
-            !sidebarMinimized && "self-start",
+            sidebarMinimized ? "self-center" : "self-start",
           )}
           title={sidebarMinimized ? "Expand sidebar" : "Minimize sidebar"}
         >
@@ -105,16 +105,16 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 key={path}
                 onClick={() => navigate(path)}
 	                className={cn(
-	                  'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-left',
-                    sidebarMinimized && 'justify-center px-0',
+	                  'flex items-center gap-3 rounded-xl transition-all duration-200 text-left text-base',
+                    sidebarMinimized ? 'mx-auto h-12 w-12 justify-center p-0' : 'w-full px-4 py-3',
 	                  isActive
 	                    ? 'bg-primary text-primary-foreground shadow-medical'
-	                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+	                    : 'text-foreground hover:bg-accent hover:text-accent-foreground'
 	                )}
                   title={sidebarMinimized ? label : undefined}
 	              >
-	                <Icon size={20} />
-	                {!sidebarMinimized && <span className="font-medium">{label}</span>}
+	                <Icon size={22} className="shrink-0" />
+	                {!sidebarMinimized && <span className="font-semibold">{label}</span>}
 	              </button>
             );
           })}
@@ -124,8 +124,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 	        <button
 	          onClick={handleLogout}
 	          className={cn(
-              "flex items-center gap-3 px-4 py-3 rounded-xl text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-all duration-200",
-              sidebarMinimized && "justify-center px-0",
+              "flex items-center gap-3 rounded-xl text-base font-semibold text-foreground hover:bg-destructive/10 hover:text-destructive transition-all duration-200",
+              sidebarMinimized ? "mx-auto h-12 w-12 justify-center p-0" : "px-4 py-3",
             )}
             title={sidebarMinimized ? "Logout" : undefined}
 	        >
@@ -135,7 +135,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-h-screen">
+      <div className="flex-1 min-w-0 flex flex-col min-h-screen">
         {/* Top Bar for Mobile */}
         <header className="lg:hidden sticky top-0 z-40 bg-card/95 backdrop-blur-lg border-b border-border">
           <div className="flex items-center justify-between px-4 py-3">

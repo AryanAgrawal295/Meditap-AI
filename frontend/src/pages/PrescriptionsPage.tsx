@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlarmClock,
@@ -18,11 +19,27 @@ import {
   XCircle,
   ExternalLink,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   MoreVertical,
   PanelRightClose,
   PanelRightOpen,
+  Plus,
+  Trash2,
 } from "lucide-react";
-import { format, startOfDay, isSameDay } from "date-fns";
+import {
+  addMonths,
+  eachDayOfInterval,
+  endOfMonth,
+  endOfWeek,
+  format,
+  isSameDay,
+  isSameMonth,
+  startOfDay,
+  startOfMonth,
+  startOfWeek,
+  subMonths,
+} from "date-fns";
 import { DashboardLayout } from "@/layouts/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -32,6 +49,7 @@ import {
   MedicationDose,
   MedicationMedicine,
   MedicationPlan,
+  Prescription,
 } from "@/types/patient";
 import { cn } from "@/lib/utils";
 import PillDetector from "@/components/PillDetector";
@@ -70,6 +88,7 @@ type MedicineWithSchedule = MedicationMedicine & {
 type PrescriptionFileWithSchedule = NonNullable<
   MedicationPlan["prescriptionFiles"]
 >[number] & {
+  planId: string;
   scheduleLabel: string;
 };
 
@@ -109,6 +128,18 @@ function getDoseTone(status: MedicationDose["status"]) {
     return "bg-emerald-50 text-emerald-700 border-emerald-200";
   if (status === "missed") return "bg-red-50 text-red-700 border-red-200";
   return "bg-amber-50 text-amber-700 border-amber-200";
+}
+
+function getDoseEventTone(status: MedicationDose["status"]) {
+  if (status === "taken") {
+    return "bg-emerald-600 text-white hover:bg-emerald-700";
+  }
+
+  if (status === "missed") {
+    return "bg-red-600 text-white hover:bg-red-700";
+  }
+
+  return "bg-amber-500 text-white hover:bg-amber-600";
 }
 
 function getScheduleLabel(plan: MedicationPlan, plans: MedicationPlan[]) {
@@ -164,6 +195,23 @@ function groupDosesByDay(doses: TimelineDose[]): DayGroup[] {
       doses,
     }))
     .sort((a, b) => a.date.getTime() - b.date.getTime());
+}
+
+function getMonthDays(monthDate: Date) {
+  const monthStart = startOfMonth(monthDate);
+  const monthEnd = endOfMonth(monthDate);
+  const calendarStart = startOfWeek(monthStart, { weekStartsOn: 0 });
+  const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 0 });
+
+  return eachDayOfInterval({ start: calendarStart, end: calendarEnd });
+}
+
+function getDayCounts(doses: TimelineDose[]) {
+  return {
+    taken: doses.filter((dose) => dose.status === "taken").length,
+    pending: doses.filter((dose) => dose.status === "pending").length,
+    missed: doses.filter((dose) => dose.status === "missed").length,
+  };
 }
 
 function getPlanAdherence(plans: MedicationPlan[]) {
@@ -474,10 +522,292 @@ function DayCard({
   );
 }
 
+function DoseMenu({
+  dose,
+  trigger,
+  onDoseClick,
+  onEditTime,
+  onMarkMissed,
+  onMarkTaken,
+  updatingDoseId,
+}: {
+  dose: TimelineDose;
+  trigger: ReactNode;
+  onDoseClick: (dose: TimelineDose) => void;
+  onEditTime: (dose: TimelineDose) => void;
+  onMarkMissed: (dose: TimelineDose) => void;
+  onMarkTaken: (dose: TimelineDose) => void;
+  updatingDoseId: string | null;
+}) {
+  const doseKey = `${dose.planId}-${dose.medicineId}-${dose._id}`;
+  const isUpdatingDose = updatingDoseId === doseKey;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild disabled={isUpdatingDose}>
+        {trigger}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem onSelect={() => onDoseClick(dose)}>
+          <Camera size={14} className="mr-2" />
+          Verify
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onMarkTaken(dose)}>
+          <Check size={14} className="mr-2" />
+          Done
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onMarkMissed(dose)}>
+          <XCircle size={14} className="mr-2" />
+          Missed
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => onEditTime(dose)}>
+          <Clock size={14} className="mr-2" />
+          Reschedule
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function CalendarSchedule({
+  dayGroups,
+  monthDate,
+  onMonthChange,
+  onDoseClick,
+  onEditTime,
+  onMarkMissed,
+  onMarkTaken,
+  updatingDoseId,
+}: {
+  dayGroups: DayGroup[];
+  monthDate: Date;
+  onMonthChange: (date: Date) => void;
+  onDoseClick: (dose: TimelineDose) => void;
+  onEditTime: (dose: TimelineDose) => void;
+  onMarkMissed: (dose: TimelineDose) => void;
+  onMarkTaken: (dose: TimelineDose) => void;
+  updatingDoseId: string | null;
+}) {
+  const [selectedDay, setSelectedDay] = useState<DayGroup | null>(null);
+  const days = useMemo(() => getMonthDays(monthDate), [monthDate]);
+  const groupsByDate = useMemo(
+    () => new Map(dayGroups.map((group) => [group.dateString, group])),
+    [dayGroups],
+  );
+  const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  return (
+    <>
+      <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <div className="flex flex-col gap-3 border-b border-border p-3 sm:flex-row sm:items-center sm:justify-between">
+          <h3 className="font-display text-xl text-foreground sm:text-2xl">
+            {format(monthDate, "MMMM yyyy")}
+          </h3>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 rounded-full"
+              onClick={() => onMonthChange(subMonths(monthDate, 1))}
+              title="Previous month"
+            >
+              <ChevronLeft size={18} />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 rounded-full px-3"
+              onClick={() => onMonthChange(new Date())}
+            >
+              Today
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 rounded-full"
+              onClick={() => onMonthChange(addMonths(monthDate, 1))}
+              title="Next month"
+            >
+              <ChevronRight size={18} />
+            </Button>
+          </div>
+        </div>
+
+        <div className="min-w-[44rem] overflow-x-auto">
+          <div className="grid grid-cols-7 border-b border-border bg-secondary/30">
+            {weekDays.map((day) => (
+              <div
+                key={day}
+                className="px-2 py-2 text-center text-xs font-medium text-muted-foreground"
+              >
+                {day}
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7">
+            {days.map((day) => {
+              const dateString = format(startOfDay(day), "yyyy-MM-dd");
+              const dayGroup = groupsByDate.get(dateString);
+              const doses = dayGroup?.doses || [];
+              const visibleDoses = doses.slice(0, 3);
+              const hiddenDoseCount = Math.max(0, doses.length - visibleDoses.length);
+              const counts = getDayCounts(doses);
+              const isCurrentMonth = isSameMonth(day, monthDate);
+              const isCurrentDay = isSameDay(day, new Date());
+
+              return (
+                <div
+                  key={dateString}
+                  className={cn(
+                    "min-h-[7rem] border-b border-r border-border p-1.5",
+                    !isCurrentMonth && "bg-secondary/20 text-muted-foreground",
+                    isCurrentDay && "bg-primary/5",
+                  )}
+                >
+                  <div className="mb-1.5 flex items-start justify-between gap-1.5">
+                    <div
+                      className={cn(
+                        "flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-xs font-semibold",
+                        isCurrentDay
+                          ? "bg-primary text-primary-foreground"
+                          : "text-foreground",
+                        !isCurrentMonth && !isCurrentDay && "text-muted-foreground",
+                      )}
+                    >
+                      {format(day, isCurrentMonth && day.getDate() === 1 ? "MMM d" : "d")}
+                    </div>
+                    {doses.length > 0 && (
+                      <div className="flex shrink-0 items-center gap-0.5 text-[0.6rem] font-medium">
+                        {counts.taken > 0 && (
+                          <span className="rounded-full bg-emerald-100 px-1 py-0.5 text-emerald-700">
+                            {counts.taken}
+                          </span>
+                        )}
+                        {counts.pending > 0 && (
+                          <span className="rounded-full bg-amber-100 px-1 py-0.5 text-amber-700">
+                            {counts.pending}
+                          </span>
+                        )}
+                        {counts.missed > 0 && (
+                          <span className="rounded-full bg-red-100 px-1 py-0.5 text-red-700">
+                            {counts.missed}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-0.5">
+                    {visibleDoses.map((dose) => (
+                      <DoseMenu
+                        key={`${dose.planId}-${dose._id}`}
+                        dose={dose}
+                        onDoseClick={onDoseClick}
+                        onEditTime={onEditTime}
+                        onMarkMissed={onMarkMissed}
+                        onMarkTaken={onMarkTaken}
+                        updatingDoseId={updatingDoseId}
+                        trigger={
+                          <button
+                            type="button"
+                            className={cn(
+                              "flex h-5 w-full items-center gap-1 rounded px-1.5 text-left text-[0.68rem] font-medium transition-colors",
+                              getDoseEventTone(dose.status),
+                            )}
+                            title={`${dose.medicineName} at ${format(new Date(dose.scheduledAt), "hh:mm a")}`}
+                          >
+                            <Pill size={10} className="shrink-0" />
+                            <span className="truncate">{dose.medicineName}</span>
+                          </button>
+                        }
+                      />
+                    ))}
+                    {hiddenDoseCount > 0 && dayGroup && (
+                      <button
+                        type="button"
+                        className="px-1 text-[0.68rem] font-medium text-muted-foreground hover:text-foreground"
+                        onClick={() => setSelectedDay(dayGroup)}
+                      >
+                        +{hiddenDoseCount} more
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <Dialog open={Boolean(selectedDay)} onOpenChange={(open) => !open && setSelectedDay(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedDay ? format(selectedDay.date, "EEEE, MMM d") : "Doses"}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedDay
+                ? `${selectedDay.doses.length} scheduled medicine dose${selectedDay.doses.length === 1 ? "" : "s"}`
+                : "Scheduled medicine doses"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
+            {selectedDay?.doses.map((dose) => (
+              <div
+                key={`${dose.planId}-${dose._id}`}
+                className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card p-3"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-foreground">{dose.medicineName}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {dose.dosage} at {format(new Date(dose.scheduledAt), "hh:mm a")}
+                  </p>
+                  <span className="mt-1 inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                    {dose.prescriptionTag || `Prescription ${dose.prescriptionIndex || 1}`}
+                  </span>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-xs font-medium capitalize",
+                      getDoseTone(dose.status),
+                    )}
+                  >
+                    {dose.status}
+                  </span>
+                  <DoseMenu
+                    dose={dose}
+                    onDoseClick={onDoseClick}
+                    onEditTime={onEditTime}
+                    onMarkMissed={onMarkMissed}
+                    onMarkTaken={onMarkTaken}
+                    updatingDoseId={updatingDoseId}
+                    trigger={
+                      <Button type="button" variant="outline" size="icon" className="h-8 w-8">
+                        <MoreVertical size={16} />
+                      </Button>
+                    }
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export default function PrescriptionsPage() {
   const {
     medicationPlans,
+    prescriptions,
     uploadPrescriptionForSchedule,
+    addPrescriptionFromRecordToSchedule,
+    deletePrescriptionFromSchedule,
     verifyDoseWithAI,
     updateDoseStatus,
     updateDoseSchedule,
@@ -499,6 +829,11 @@ export default function PrescriptionsPage() {
   const [openMedicineId, setOpenMedicineId] = useState<string | null>(null);
   const [showPrescriptionFiles, setShowPrescriptionFiles] = useState(false);
   const [isDetailsSidebarMinimized, setIsDetailsSidebarMinimized] = useState(false);
+  const [isRecordPickerOpen, setIsRecordPickerOpen] = useState(false);
+  const [selectedPrescriptionId, setSelectedPrescriptionId] = useState("");
+  const [isAddingFromRecord, setIsAddingFromRecord] = useState(false);
+  const [deletingPrescriptionKey, setDeletingPrescriptionKey] = useState<string | null>(null);
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date());
   const prescriptionInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -567,9 +902,15 @@ export default function PrescriptionsPage() {
     () =>
       timelinePlans.flatMap((plan) => {
         const scheduleLabel = getScheduleLabel(plan, medicationPlans);
-        const files = plan.prescriptionFiles?.length
-          ? plan.prescriptionFiles
-          : plan.sourceFileUrl
+        const activePrescriptionIndexes = new Set(
+          plan.medicines.map((medicine) => Number(medicine.prescriptionIndex) || 1),
+        );
+        const savedFiles = (plan.prescriptionFiles || []).filter((file) =>
+          activePrescriptionIndexes.has(Number(file.index) || 1),
+        );
+        const files = savedFiles.length
+          ? savedFiles
+          : plan.sourceFileUrl && activePrescriptionIndexes.has(1)
             ? [
                 {
                   index: 1,
@@ -583,11 +924,13 @@ export default function PrescriptionsPage() {
 
         return files.map((file) => ({
           ...file,
+          planId: plan.id,
           scheduleLabel,
         }));
       }),
     [timelinePlans, medicationPlans],
   );
+  const uploadButtonLabel = prescriptionFiles.length === 0 ? "Upload Prescription" : "Add Prescription";
 
   const handlePrescriptionUpload = async (
     event: React.ChangeEvent<HTMLInputElement>,
@@ -615,6 +958,69 @@ export default function PrescriptionsPage() {
     } finally {
       setIsUploadingPrescription(false);
       event.target.value = "";
+    }
+  };
+
+  const handleAddPrescriptionFromRecord = async () => {
+    const selectedPrescription = prescriptions.find(
+      (prescription) => prescription.id === selectedPrescriptionId,
+    );
+
+    if (!selectedPrescription) return;
+
+    try {
+      setIsAddingFromRecord(true);
+      await addPrescriptionFromRecordToSchedule(selectedPrescription, primaryPlan?.id);
+      toast({
+        title: "Prescription added",
+        description: "Medicines from the selected medical record were added to the schedule.",
+      });
+      setSelectedPrescriptionId("");
+      setIsRecordPickerOpen(false);
+    } catch (error) {
+      toast({
+        title: "Could not add prescription",
+        description:
+          error instanceof Error
+            ? error.message
+            : "The selected prescription could not be added.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAddingFromRecord(false);
+    }
+  };
+
+  const handleDeletePrescription = async (file: PrescriptionFileWithSchedule) => {
+    const confirmed = window.confirm(
+      `Delete ${file.tag}? Its medicines and doses will be removed from this schedule.`,
+    );
+
+    if (!confirmed) return;
+
+    const deleteKey = `${file.planId}-${file.index}`;
+
+    try {
+      setDeletingPrescriptionKey(deleteKey);
+      await deletePrescriptionFromSchedule({
+        planId: file.planId,
+        prescriptionIndex: file.index,
+      });
+      toast({
+        title: "Prescription deleted",
+        description: `${file.tag} and its medicines were removed from the schedule.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Could not delete prescription",
+        description:
+          error instanceof Error
+            ? error.message
+            : "The prescription could not be removed.",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingPrescriptionKey(null);
     }
   };
 
@@ -763,6 +1169,14 @@ export default function PrescriptionsPage() {
           <div className="flex items-center gap-2">
             <Button
               type="button"
+              variant="outline"
+              onClick={() => setIsRecordPickerOpen(true)}
+            >
+              <Plus size={16} />
+              Add from Records
+            </Button>
+            <Button
+              type="button"
               variant="medical"
               onClick={() => prescriptionInputRef.current?.click()}
               disabled={isUploadingPrescription}
@@ -774,7 +1188,7 @@ export default function PrescriptionsPage() {
               )}
               {isUploadingPrescription
                 ? "Uploading..."
-                : "Add Prescription"}
+                : uploadButtonLabel}
             </Button>
             <input
               ref={prescriptionInputRef}
@@ -870,15 +1284,25 @@ export default function PrescriptionsPage() {
                         )}
                         {isUploadingPrescription
                           ? "Uploading..."
-                          : "Add Prescription"}
+                          : uploadButtonLabel}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="mt-4 sm:ml-2"
+                        onClick={() => setIsRecordPickerOpen(true)}
+                      >
+                        <Plus size={16} />
+                        Add from Records
                       </Button>
                     </div>
                   )}
 
-                  {dayGroups.map((dayGroup) => (
-                    <DayCard
-                      key={dayGroup.dateString}
-                      dayGroup={dayGroup}
+                  {timeline.length > 0 && (
+                    <CalendarSchedule
+                      dayGroups={dayGroups}
+                      monthDate={calendarMonth}
+                      onMonthChange={setCalendarMonth}
                       onDoseClick={(dose) => {
                         setIsAlarmVerification(false);
                         setActiveDose(dose);
@@ -886,12 +1310,9 @@ export default function PrescriptionsPage() {
                       onEditTime={openScheduleEditor}
                       onMarkMissed={(dose) => void handleDoseStatusUpdate(dose, "missed")}
                       onMarkTaken={(dose) => void handleDoseStatusUpdate(dose, "taken")}
-                      isPaused={false}
-                      defaultOpen
-                      showScheduleLabel={false}
                       updatingDoseId={updatingDoseId}
                     />
-                  ))}
+                  )}
                 </div>
               </section>
 
@@ -955,18 +1376,35 @@ export default function PrescriptionsPage() {
                                   {file.fileName || file.fileUrl}
                                 </p>
                               </div>
-                              {file.fileUrl && (
-                                <Button asChild variant="outline" size="icon" className="h-8 w-8">
-                                  <a
-                                    href={file.fileUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    title="Open prescription"
-                                  >
-                                    <ExternalLink size={16} />
-                                  </a>
+                              <div className="flex shrink-0 items-center gap-2">
+                                {file.fileUrl && (
+                                  <Button asChild variant="outline" size="icon" className="h-8 w-8">
+                                    <a
+                                      href={file.fileUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      title="Open prescription"
+                                    >
+                                      <ExternalLink size={16} />
+                                    </a>
+                                  </Button>
+                                )}
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-8 w-8 text-destructive hover:text-destructive"
+                                  title="Delete prescription"
+                                  onClick={() => void handleDeletePrescription(file)}
+                                  disabled={deletingPrescriptionKey === `${file.planId}-${file.index}`}
+                                >
+                                  {deletingPrescriptionKey === `${file.planId}-${file.index}` ? (
+                                    <RefreshCcw size={16} className="animate-spin" />
+                                  ) : (
+                                    <Trash2 size={16} />
+                                  )}
                                 </Button>
-                              )}
+                              </div>
                             </div>
                           </div>
                         ))}
@@ -1031,8 +1469,95 @@ export default function PrescriptionsPage() {
                 )}
               </aside>
             </div>
-          </div>
         </div>
+      </div>
+
+      <Dialog open={isRecordPickerOpen} onOpenChange={setIsRecordPickerOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Add Prescription from Medical Records</DialogTitle>
+            <DialogDescription>
+              Select a saved prescription. Its medicines will be added to the active adherence schedule.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="max-h-[24rem] space-y-3 overflow-y-auto pr-1">
+            {prescriptions.length > 0 ? (
+              prescriptions.map((prescription: Prescription) => {
+                const isSelected = selectedPrescriptionId === prescription.id;
+
+                return (
+                  <button
+                    key={prescription.id}
+                    type="button"
+                    onClick={() => setSelectedPrescriptionId(prescription.id)}
+                    className={cn(
+                      "w-full rounded-lg border bg-card p-4 text-left transition-colors hover:border-primary/60",
+                      isSelected ? "border-primary ring-2 ring-primary/20" : "border-border",
+                    )}
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="font-semibold text-foreground">
+                          {prescription.doctor}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {format(new Date(prescription.date), "MMM d, yyyy")}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">
+                        {prescription.medicines.length} medicine{prescription.medicines.length === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-sm text-foreground">
+                      {prescription.medicines.map((medicine) => medicine.name).join(", ")}
+                    </p>
+                    {prescription.notes && (
+                      <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+                        {prescription.notes}
+                      </p>
+                    )}
+                  </button>
+                );
+              })
+            ) : (
+              <div className="rounded-lg border border-dashed border-border p-6 text-center">
+                <FileImage className="mx-auto text-muted-foreground" size={28} />
+                <p className="mt-3 font-medium text-foreground">
+                  No saved prescriptions found
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Add a medical record with prescription medicines first.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsRecordPickerOpen(false)}
+              disabled={isAddingFromRecord}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="medical"
+              onClick={() => void handleAddPrescriptionFromRecord()}
+              disabled={!selectedPrescriptionId || isAddingFromRecord}
+            >
+              {isAddingFromRecord ? (
+                <RefreshCcw size={16} className="animate-spin" />
+              ) : (
+                <Plus size={16} />
+              )}
+              {isAddingFromRecord ? "Adding..." : "Add Prescription"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {activeDose && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">

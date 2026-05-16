@@ -21,6 +21,9 @@ function cleanOCRText(text = "") {
 
 function toClientPlan(plan) {
   const adherence = summarizeAdherence(plan);
+  const activePrescriptionIndexes = new Set(
+    (plan.medicines || []).map((medicine) => Number(medicine.prescriptionIndex) || 1)
+  );
   const refillAlerts = plan.medicines
     .filter((medicine) => medicine.refillReminderAt)
     .map((medicine) => ({
@@ -29,20 +32,22 @@ function toClientPlan(plan) {
       refillReminderAt: medicine.refillReminderAt,
       stockQuantity: medicine.stockQuantity,
     }));
-  const prescriptionFiles = (plan.prescriptionFiles || []).map((file) => ({
-    index: file.index,
-    tag: file.tag || `Prescription ${file.index || 1}`,
-    fileUrl:
-      buildSignedDownloadUrl({
-        publicId: file.filePublicId,
-        format: file.fileFormat,
-        resourceType: file.fileResourceType,
-        fileName: file.fileName,
-      }) || file.fileUrl,
-    filePublicId: file.filePublicId,
-    fileName: file.fileName,
-    uploadedAt: file.uploadedAt,
-  }));
+  const prescriptionFiles = (plan.prescriptionFiles || [])
+    .filter((file) => activePrescriptionIndexes.has(Number(file.index) || 1))
+    .map((file) => ({
+      index: file.index,
+      tag: file.tag || `Prescription ${file.index || 1}`,
+      fileUrl:
+        buildSignedDownloadUrl({
+          publicId: file.filePublicId,
+          format: file.fileFormat,
+          resourceType: file.fileResourceType,
+          fileName: file.fileName,
+        }) || file.fileUrl,
+      filePublicId: file.filePublicId,
+      fileName: file.fileName,
+      uploadedAt: file.uploadedAt,
+    }));
   const sourceFileUrl =
     buildSignedDownloadUrl({
       publicId: plan.sourceFilePublicId,
@@ -51,7 +56,7 @@ function toClientPlan(plan) {
       fileName: plan.sourceFileName,
     }) || plan.sourceFileUrl;
   const normalizedPrescriptionFiles =
-    prescriptionFiles.length > 0 || !sourceFileUrl
+    prescriptionFiles.length > 0 || !sourceFileUrl || !activePrescriptionIndexes.has(1)
       ? prescriptionFiles
       : [
           {
@@ -85,6 +90,32 @@ function toClientPlan(plan) {
 
 function canAccessPatient(req, patientId) {
   return !req.user?.isPatientSession || String(req.user.patientId) === String(patientId);
+}
+
+function ensurePrescriptionFiles(plan) {
+  if ((!plan.prescriptionFiles || plan.prescriptionFiles.length === 0) && (plan.sourceFileUrl || plan.sourceFileName)) {
+    plan.prescriptionFiles = [
+      {
+        index: 1,
+        tag: "Prescription 1",
+        fileUrl: plan.sourceFileUrl,
+        filePublicId: plan.sourceFilePublicId,
+        fileName: plan.sourceFileName,
+        fileResourceType: plan.sourceFileResourceType,
+        fileFormat: plan.sourceFileFormat,
+        uploadedAt: plan.createdAt,
+      },
+    ];
+  }
+}
+
+function getNextPrescriptionIndex(plan) {
+  const existingIndexes = [
+    ...(plan.prescriptionFiles || []).map((file) => Number(file.index) || 0),
+    ...(plan.medicines || []).map((medicine) => Number(medicine.prescriptionIndex) || 0),
+  ];
+
+  return Math.max(0, ...existingIndexes) + 1;
 }
 
 async function extractPrescriptionSchedule(file, prescriptionIndex) {
@@ -248,26 +279,8 @@ exports.appendPrescriptionToPlan = async (req, res) => {
       return res.status(400).json({ message: "Prescription image is required" });
     }
 
-    if ((!plan.prescriptionFiles || plan.prescriptionFiles.length === 0) && (plan.sourceFileUrl || plan.sourceFileName)) {
-      plan.prescriptionFiles = [
-        {
-          index: 1,
-          tag: "Prescription 1",
-          fileUrl: plan.sourceFileUrl,
-          filePublicId: plan.sourceFilePublicId,
-          fileName: plan.sourceFileName,
-          fileResourceType: plan.sourceFileResourceType,
-          fileFormat: plan.sourceFileFormat,
-          uploadedAt: plan.createdAt,
-        },
-      ];
-    }
-
-    const existingIndexes = [
-      ...(plan.prescriptionFiles || []).map((file) => Number(file.index) || 0),
-      ...(plan.medicines || []).map((medicine) => Number(medicine.prescriptionIndex) || 0),
-    ];
-    const nextIndex = Math.max(1, ...existingIndexes) + 1;
+    ensurePrescriptionFiles(plan);
+    const nextIndex = getNextPrescriptionIndex(plan);
     const { rawText, cleanedText, structuredMedicines, medicines, prescriptionFile } =
       await extractPrescriptionSchedule(req.file, nextIndex);
 
@@ -290,6 +303,151 @@ exports.appendPrescriptionToPlan = async (req, res) => {
     });
   } catch (error) {
     console.error("Append prescription error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.importPrescriptionToPlan = async (req, res) => {
+  try {
+    const { patientId, planId, prescriptionId, doctor, date, medicines: bodyMedicines, notes } = req.body;
+    const targetPlanId = planId || req.params.planId;
+    const medicinesInput = Array.isArray(bodyMedicines) ? bodyMedicines : [];
+
+    if (!patientId && !targetPlanId) {
+      return res.status(400).json({ message: "patientId or planId is required" });
+    }
+
+    if (medicinesInput.length === 0) {
+      return res.status(400).json({ message: "Prescription has no medicines to add" });
+    }
+
+    let plan = targetPlanId ? await MedicationPlan.findById(targetPlanId) : null;
+    const resolvedPatientId = plan?.patient || patientId;
+
+    if (!resolvedPatientId) {
+      return res.status(400).json({ message: "patientId is required" });
+    }
+
+    if (!canAccessPatient(req, resolvedPatientId)) {
+      return res.status(403).json({ message: "Access denied for this patient" });
+    }
+
+    if (!plan) {
+      plan = await MedicationPlan.create({
+        patient: resolvedPatientId,
+        createdBy: req.user?._id,
+        prescriptionText: "",
+        source: "import",
+        prescriptionFiles: [],
+        medicines: [],
+        agentTrace: [
+          {
+            agent: "Medical record import agent",
+            status: "ready",
+            summary: "Created schedule from a saved medical record prescription.",
+          },
+        ],
+      });
+    }
+
+    ensurePrescriptionFiles(plan);
+    const nextIndex = getNextPrescriptionIndex(plan);
+    const tag = `Prescription ${nextIndex}`;
+    const structuredMedicines = medicinesInput.map((medicine) => ({
+      name: String(medicine.name || "").trim(),
+      dosage: medicine.dosage || "As prescribed",
+      timing: Array.isArray(medicine.timing) ? medicine.timing : [],
+      duration: medicine.duration || "7 days",
+      durationDays: medicine.durationDays,
+      frequency: medicine.frequency || "Once daily",
+      frequencyPerDay: medicine.frequencyPerDay,
+      quantityPerDose: medicine.quantityPerDose || 1,
+    })).filter((medicine) => medicine.name);
+
+    if (structuredMedicines.length === 0) {
+      return res.status(400).json({ message: "Prescription has no valid medicines to add" });
+    }
+
+    const importedMedicines = buildDoseTimeline(structuredMedicines).map((medicine) => ({
+      ...medicine,
+      prescriptionIndex: nextIndex,
+      prescriptionTag: tag,
+      sourceFileName: doctor ? `Medical record - ${doctor}` : "Medical record",
+    }));
+    const prescriptionSummary = [
+      doctor ? `Doctor: ${doctor}` : null,
+      date ? `Date: ${date}` : null,
+      notes || null,
+      `Medicines: ${structuredMedicines.map((medicine) => medicine.name).join(", ")}`,
+    ].filter(Boolean).join("\n");
+
+    plan.prescriptionText = [plan.prescriptionText, prescriptionSummary].filter(Boolean).join("\n\n---\n\n");
+    plan.prescriptionFiles.push({
+      index: nextIndex,
+      tag,
+      fileName: doctor ? `Medical record - ${doctor}` : "Medical record prescription",
+      uploadedAt: date ? new Date(date) : new Date(),
+    });
+    plan.medicines.push(...importedMedicines);
+    plan.agentTrace.push({
+      agent: "Medical record import agent",
+      status: "completed",
+      summary: `Added ${importedMedicines.length} medicine(s) from saved prescription ${prescriptionId || tag}.`,
+    });
+
+    await plan.save();
+    res.status(targetPlanId ? 200 : 201).json({ plan: toClientPlan(plan) });
+  } catch (error) {
+    console.error("Import prescription error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+exports.deletePrescriptionFromPlan = async (req, res) => {
+  try {
+    const { planId, prescriptionIndex } = req.params;
+    const index = Number(prescriptionIndex);
+    const plan = await MedicationPlan.findById(planId);
+
+    if (!Number.isFinite(index) || index < 1) {
+      return res.status(400).json({ message: "Invalid prescription index" });
+    }
+
+    if (!plan) {
+      return res.status(404).json({ message: "Medication plan not found" });
+    }
+
+    if (!canAccessPatient(req, plan.patient)) {
+      return res.status(403).json({ message: "Access denied for this patient" });
+    }
+
+    const beforeCount = plan.medicines.length;
+    const beforeFileCount = (plan.prescriptionFiles || []).length;
+    plan.medicines = plan.medicines.filter((medicine) => (Number(medicine.prescriptionIndex) || 1) !== index);
+    plan.prescriptionFiles = (plan.prescriptionFiles || []).filter((file) => Number(file.index) !== index);
+
+    if (plan.medicines.length === beforeCount && plan.prescriptionFiles.length === beforeFileCount) {
+      return res.status(404).json({ message: "Prescription not found in schedule" });
+    }
+
+    if (index === 1) {
+      plan.sourceFileUrl = null;
+      plan.sourceFilePublicId = null;
+      plan.sourceFileName = null;
+      plan.sourceFileResourceType = null;
+      plan.sourceFileFormat = null;
+    }
+
+    plan.agentTrace.push({
+      agent: "Medicine scheduling agent",
+      status: "completed",
+      summary: `Removed Prescription ${index} and its medicines from the schedule.`,
+    });
+
+    await plan.save();
+    res.json(toClientPlan(plan));
+  } catch (error) {
+    console.error("Delete prescription error:", error);
     res.status(500).json({ message: error.message });
   }
 };
