@@ -1,0 +1,147 @@
+import { Patient, MedicalRecord, Prescription } from '@/types/patient';
+
+export const mockPatient: Patient = {
+  id: 'P001',
+  name: 'Sarah Mitchell',
+  age: 34,
+  bloodGroup: 'O+',
+  allergies: ['Penicillin', 'Shellfish'],
+  emergencyContact: {
+    name: 'John Mitchell',
+    phone: '+1 (555) 123-4567',
+    relation: 'Spouse',
+  },
+  photo: undefined,
+  dateOfBirth: '1990-03-15',
+  gender: 'Female',
+};
+
+export const mockMedicalRecords: MedicalRecord[] = [
+  {
+    id: 'MR001',
+    date: '2024-01-15',
+    title: 'Annual Checkup',
+    diagnosis: 'General health assessment - All vitals normal',
+    doctor: 'Dr. Emily Chen',
+    hospital: 'City Medical Center',
+    department: 'General Medicine',
+    description: 'Routine annual physical examination. Blood pressure, heart rate, and respiratory rate within normal limits. Recommended continued healthy lifestyle.',
+    recordType: 'consultation',
+    severity: 'normal',
+    tags: ['lifestyle'],
+  },
+  {
+    id: 'MR002',
+    date: '2023-11-20',
+    title: 'Respiratory Infection',
+    diagnosis: 'Acute bronchitis',
+    doctor: 'Dr. James Wilson',
+    hospital: 'Quick Care Clinic',
+    department: 'Pulmonology',
+    description: 'Patient presented with persistent cough and mild fever. Prescribed antibiotics and rest. Follow-up in 2 weeks.',
+    recordType: 'diagnosis',
+    severity: 'follow-up',
+    tags: ['infection', 'acute'],
+  },
+  {
+    id: 'MR003',
+    date: '2023-08-05',
+    title: 'Allergy Consultation',
+    diagnosis: 'Seasonal allergies confirmed',
+    doctor: 'Dr. Sarah Kim',
+    hospital: 'Allergy & Asthma Center',
+    department: 'Immunology',
+    description: 'Skin prick test conducted. Confirmed allergies to pollen and dust mites. Prescribed antihistamines.',
+    recordType: 'lab-test',
+    severity: 'normal',
+    tags: ['allergy-related', 'chronic'],
+  },
+  {
+    id: 'MR004',
+    date: '2023-05-12',
+    title: 'Dental Procedure',
+    diagnosis: 'Wisdom tooth extraction',
+    doctor: 'Dr. Michael Brown',
+    hospital: 'Dental Care Plus',
+    department: 'Dental',
+    description: 'Successful extraction of lower right wisdom tooth. Post-operative care instructions provided.',
+    recordType: 'surgery',
+    severity: 'normal',
+    tags: ['acute'],
+  },
+  {
+    id: 'MR005',
+    date: '2023-02-18',
+    title: 'Emergency Room Visit',
+    diagnosis: 'Sprained ankle',
+    doctor: 'Dr. Robert Lee',
+    hospital: 'City Medical Center',
+    department: 'Emergency',
+    description: 'Patient fell while hiking. X-ray negative for fractures. Prescribed rest and anti-inflammatory medication.',
+    recordType: 'emergency',
+    severity: 'emergency',
+    tags: ['injury', 'acute'],
+  },
+];
+
+export const mockPrescriptions: Prescription[] = [
+  {
+    id: 'RX001',
+    date: '2024-01-15',
+    doctor: 'Dr. Emily Chen',
+    medicines: [
+      {
+        name: 'Vitamin D3',
+        dosage: '1000 IU',
+        frequency: 'Once daily',
+        duration: '3 months',
+      },
+      {
+        name: 'Omega-3 Fish Oil',
+        dosage: '1000mg',
+        frequency: 'Twice daily',
+        duration: '3 months',
+      },
+    ],
+    notes: 'Take with meals for better absorption.',
+  },
+  {
+    id: 'RX002',
+    date: '2023-11-20',
+    doctor: 'Dr. James Wilson',
+    medicines: [
+      {
+        name: 'Azithromycin',
+        dosage: '500mg',
+        frequency: 'Once daily',
+        duration: '5 days',
+      },
+      {
+        name: 'Guaifenesin',
+        dosage: '200mg',
+        frequency: 'Every 4 hours',
+        duration: '7 days',
+      },
+    ],
+    notes: 'Complete full course of antibiotics. Drink plenty of fluids.',
+  },
+  {
+    id: 'RX003',
+    date: '2023-08-05',
+    doctor: 'Dr. Sarah Kim',
+    medicines: [
+      {
+        name: 'Cetirizine',
+        dosage: '10mg',
+        frequency: 'Once daily',
+        duration: 'As needed',
+      },
+      {
+        name: 'Fluticasone Nasal Spray',
+        dosage: '50mcg',
+        frequency: 'Twice daily',
+        duration: 'During allergy season',
+      },
+    ],
+  },
+];

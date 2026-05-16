@@ -1,0 +1,43 @@
+[dotenv@17.3.1] injecting env (5) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+Starting AI Service Test...
+
+============================================
+TEST 1: Asking about known Medical History
+Question: What is my current blood pressure medication and do I have any allergies?
+AI Thinking...
+OpenAI API Error: RateLimitError: 429 You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.
+    at APIError.generate (C:\Users\yashk\Downloads\major\NFC-Based-Smart-Healthcare-System\node_modules\openai\core\error.js:63:20)
+    at OpenAI.makeStatusError (C:\Users\yashk\Downloads\major\NFC-Based-Smart-Healthcare-System\node_modules\openai\client.js:197:32)
+    at OpenAI.makeRequest (C:\Users\yashk\Downloads\major\NFC-Based-Smart-Healthcare-System\node_modules\openai\client.js:366:30)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async exports.generateMedicalResponse (C:\Users\yashk\Downloads\major\NFC-Based-Smart-Healthcare-System\services\aiService.js:51:22)
+    at async runTest (C:\Users\yashk\Downloads\major\NFC-Based-Smart-Healthcare-System\test-ai.js:52:18) {
+  status: 429,
+  headers: Headers {
+    date: 'Tue, 31 Mar 2026 18:25:18 GMT',
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': '337',
+    connection: 'keep-alive',
+    'set-cookie': '__cf_bm=F09ldlpIIuS6dXkHSvmde3T2IVmbg4GD7vTDcRQNMuA-1774981518.1822011-1.0.1.1-1PiCiPY3hhA3hCNFymXA6i1SIHb2OM.j5hGMk1mIEDVFnJSljGOBhd9cj5rgKa9z1XebQD1w.D1s3XSpabxXuXuhqiweUVTesISHNBIB7pFhCf.BBG948mFXoyNQnc1g; HttpOnly; Secure; Path=/; Domain=api.openai.com; Expires=Tue, 31 Mar 2026 18:55:18 GMT, _cfuvid=cgRImznb13SkNQ0m8ucyRkS9E3wxv.LW.8yMXs7kkX4-1774981518.1822011-1.0.1.1-r1hoS7B27v7G_7xl_7Q_6VYJuqOnWOoNoLfK.WJrnDY; HttpOnly; SameSite=None; Secure; Path=/; Domain=api.openai.com',
+    'cf-ray': '9e516558acd20ee1-DEL',
+    'cf-cache-status': 'DYNAMIC',
+    server: 'cloudflare',
+    'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
+    vary: 'Origin',
+    'x-content-type-options': 'nosniff',
+    'x-openai-proxy-wasm': 'v0.1',
+    'x-request-id': 'req_2a5282a3dd3f45e8854d6fc5e121fd20',
+    'alt-svc': 'h3=":443"; ma=86400'
+  },
+  requestID: 'req_2a5282a3dd3f45e8854d6fc5e121fd20',
+  error: {
+    message: 'You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.',
+    type: 'insufficient_quota',
+    param: null,
+    code: 'insufficient_quota'
+  },
+  code: 'insufficient_quota',
+  param: null,
+  type: 'insufficient_quota'
+}
+Test Failed WITH ERROR Message: Failed to generate AI response. Please try again later.
