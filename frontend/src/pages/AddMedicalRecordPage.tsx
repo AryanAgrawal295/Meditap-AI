@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Upload, ScanText, RefreshCcw } from 'lucide-react';
+import { ArrowLeft, Save, Upload, ScanText, RefreshCcw, Smartphone } from 'lucide-react';
 import { DashboardLayout } from '@/layouts/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +10,7 @@ import { useApp } from '@/contexts/AppContext';
 import { useToast } from '@/hooks/use-toast';
 import { MedicalAttachment, RecordType, Severity, ConditionTag } from '@/types/patient';
 import { cn } from '@/lib/utils';
+import { DocumentScanner } from '@/components/DocumentScanner';
 
 const recordTypes: { value: RecordType; label: string }[] = [
   { value: 'consultation', label: 'Consultation' },
@@ -166,6 +167,8 @@ export default function AddMedicalRecordPage() {
   const [prescriptionFile, setPrescriptionFile] = useState<File | null>(null);
   const [isScanningPrescription, setIsScanningPrescription] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showDocumentScanner, setShowDocumentScanner] = useState(false);
+  const [isUploadingScannedDocument, setIsUploadingScannedDocument] = useState(false);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -256,6 +259,27 @@ export default function AddMedicalRecordPage() {
       });
     } finally {
       event.target.value = '';
+    }
+  };
+
+  const handleScannedDocumentCapture = async (file: File) => {
+    try {
+      setIsUploadingScannedDocument(true);
+      const uploadedFile = await uploadMedicalReport(file);
+      setAttachments(prev => [...prev, uploadedFile]);
+      
+      toast({
+        title: "Document Scanned",
+        description: "Scanned document has been attached to the record.",
+      });
+    } catch (error) {
+      toast({
+        title: "Scan Upload Failed",
+        description: error instanceof Error ? error.message : "Could not upload the scanned document.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingScannedDocument(false);
     }
   };
 
@@ -554,10 +578,27 @@ export default function AddMedicalRecordPage() {
           <div className="medical-card">
             <h2 className="font-display text-lg text-foreground mb-4">Attachments</h2>
             <div className="space-y-3">
-              <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>
-                <Upload size={16} />
-                Upload Document
-              </Button>
+              <div className="flex gap-2 flex-col sm:flex-row">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingScannedDocument}
+                >
+                  <Upload size={16} />
+                  Upload Document
+                </Button>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => setShowDocumentScanner(true)}
+                  disabled={isUploadingScannedDocument}
+                  className="border-primary text-primary hover:bg-primary/10"
+                >
+                  <Smartphone size={16} />
+                  Scan Document
+                </Button>
+              </div>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -567,10 +608,16 @@ export default function AddMedicalRecordPage() {
               />
               {attachments.length > 0 && (
                 <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Attached Documents ({attachments.length})</p>
                   {attachments.map((file, index) => (
-                    <div key={index} className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <span>File</span>
-                      <span>{file.fileName || `Attachment ${index + 1}`}</span>
+                    <div key={index} className="flex items-center gap-3 rounded-lg border border-border bg-secondary/30 p-2 text-sm">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-primary/10 text-xs font-semibold text-primary">
+                        {index + 1}
+                      </span>
+                      <span className="truncate text-foreground">{file.fileName || `Attachment ${index + 1}`}</span>
+                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                        {file.format ? `.${file.format}` : file.mimeType?.split('/')[1] || 'file'}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -590,6 +637,15 @@ export default function AddMedicalRecordPage() {
           </div>
         </div>
       </form>
+
+      {/* Document Scanner Modal */}
+      {showDocumentScanner && (
+        <DocumentScanner
+          onCapture={handleScannedDocumentCapture}
+          onClose={() => setShowDocumentScanner(false)}
+          isProcessing={isUploadingScannedDocument}
+        />
+      )}
     </DashboardLayout>
   );
 }

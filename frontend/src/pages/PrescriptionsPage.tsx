@@ -41,6 +41,7 @@ import {
 } from "@/types/patient";
 import { cn } from "@/lib/utils";
 import PillDetector from "@/components/PillDetector";
+import { DocumentScanner } from "@/components/DocumentScanner";
 import {
   Dialog,
   DialogContent,
@@ -465,6 +466,7 @@ export default function PrescriptionsPage() {
   const [showMedicinesDrawer, setShowMedicinesDrawer] = useState(false);
   const [isSchedulesSidebarMinimized, setIsSchedulesSidebarMinimized] = useState(false);
   const [isDetailsSidebarMinimized, setIsDetailsSidebarMinimized] = useState(false);
+  const [showPrescriptionScanner, setShowPrescriptionScanner] = useState(false);
   const prescriptionInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -581,6 +583,33 @@ export default function PrescriptionsPage() {
     } finally {
       setIsUploadingPrescription(false);
       event.target.value = "";
+    }
+  };
+
+  const handleScannedPrescriptionCapture = async (file: File) => {
+    try {
+      setIsUploadingPrescription(true);
+      const plan = await uploadPrescriptionForSchedule(file, activePlan?.id);
+      setActiveScheduleId(plan.id);
+      setShowPrescriptionScanner(false);
+      
+      toast({
+        title: activePlan ? "Prescription scanned" : "Schedule created",
+        description: activePlan
+          ? "Medicines were extracted and added to this schedule."
+          : "AI created a new medication schedule from the scanned prescription.",
+      });
+    } catch (error) {
+      toast({
+        title: "Scan failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Could not process the scanned prescription.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingPrescription(false);
     }
   };
 
@@ -816,6 +845,16 @@ export default function PrescriptionsPage() {
                 : activePlan
                   ? "Add Prescription"
                   : "Upload Prescription"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowPrescriptionScanner(true)}
+              disabled={isUploadingPrescription}
+              className="border-primary text-primary hover:bg-primary/10"
+            >
+              <Camera size={16} />
+              Scan Prescription
             </Button>
             <input
               ref={prescriptionInputRef}
@@ -1424,6 +1463,15 @@ export default function PrescriptionsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Prescription Scanner Modal */}
+      {showPrescriptionScanner && (
+        <DocumentScanner
+          onCapture={handleScannedPrescriptionCapture}
+          onClose={() => setShowPrescriptionScanner(false)}
+          isProcessing={isUploadingPrescription}
+        />
+      )}
     </DashboardLayout>
   );
 }

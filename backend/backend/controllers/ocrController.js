@@ -7,6 +7,11 @@ const {
   extractStructuredMedicines,
 } = require("../services/medicationAgentService");
 const { extractMedicinesFromImage } = require("../services/medicationAgentService");
+const {
+  validateScannedDocument,
+  prepareForOCR,
+  generateOCRHints,
+} = require("../services/documentScanningService");
 
 function cleanOCRText(text) {
   return text
@@ -22,6 +27,21 @@ exports.processPrescription = async (req, res) => {
       return res.status(400).json({ error: "No file uploaded" });
     }
 
+    // Step 0: Validate scanned document
+    const validation = validateScannedDocument(req.file.buffer, req.file.originalname);
+    if (!validation.valid) {
+      return res.status(400).json({
+        error: "Invalid document",
+        details: validation.errors,
+        warnings: validation.warnings,
+      });
+    }
+
+    // Log warnings if any
+    if (validation.warnings.length > 0) {
+      console.warn("Document quality warnings:", validation.warnings);
+    }
+
     let uploadedFile = null;
     try {
       uploadedFile = await uploadBuffer(req.file.buffer, {
@@ -31,6 +51,9 @@ exports.processPrescription = async (req, res) => {
     } catch (uploadError) {
       console.warn("OCR file storage skipped:", uploadError.message);
     }
+
+    // Prepare optimization hints
+    const ocrHints = generateOCRHints(req.file.buffer);
 
     // Step 1: Textract (now returns confidence + handwriting flag)
     const textractResult = await extractText(req.file.buffer);
@@ -82,6 +105,9 @@ exports.processPrescription = async (req, res) => {
       extractionMethod,             // "vision-llm" or "text-llm"
       ocrConfidence: textractResult.confidence,
       wasHandwritten: textractResult.hasHandwriting,
+      documentQuality: validation.analysis.likelyHighQuality ? "high" : "medium",
+      qualityWarnings: validation.warnings,
+      ocrOptimizations: ocrHints,
     });
 
   } catch (error) {
