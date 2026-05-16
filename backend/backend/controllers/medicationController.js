@@ -87,6 +87,28 @@ function canAccessPatient(req, patientId) {
   return !req.user?.isPatientSession || String(req.user.patientId) === String(patientId);
 }
 
+function normalizeSearchText(...values) {
+  return values
+    .flat()
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase().trim())
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildMedicineSearchText(medicine = {}, sourceFileName = "", prescriptionTag = "") {
+  return normalizeSearchText(
+    medicine.name,
+    medicine.dosage,
+    medicine.frequency,
+    medicine.duration,
+    medicine.timing,
+    sourceFileName,
+    prescriptionTag
+  );
+}
+
 async function extractPrescriptionSchedule(file, prescriptionIndex) {
   let uploadedFile = null;
 
@@ -139,6 +161,7 @@ async function extractPrescriptionSchedule(file, prescriptionIndex) {
     prescriptionIndex,
     prescriptionTag: tag,
     sourceFileName: file.originalname,
+    searchText: buildMedicineSearchText(medicine, file.originalname, tag),
   }));
 
   const prescriptionFile = {
@@ -195,6 +218,12 @@ exports.createPlanFromPrescription = async (req, res) => {
       sourceFileFormat: prescriptionFile.fileFormat,
       prescriptionFiles: [prescriptionFile],
       medicines,
+      searchKeywords: normalizeSearchText(
+        cleanedText,
+        medicines.map((medicine) => medicine.searchText),
+        prescriptionFile.fileName,
+        prescriptionFile.tag
+      ),
       agentTrace: [
         {
           agent: "OCR processing agent",
@@ -273,12 +302,22 @@ exports.appendPrescriptionToPlan = async (req, res) => {
 
     plan.prescriptionText = [plan.prescriptionText, cleanedText].filter(Boolean).join("\n\n---\n\n");
     plan.prescriptionFiles.push(prescriptionFile);
-    plan.medicines.push(...medicines);
+    plan.medicines.push(...medicines.map((medicine) => ({
+      ...medicine,
+      searchText: buildMedicineSearchText(medicine, prescriptionFile.fileName, prescriptionFile.tag),
+    })));
     plan.agentTrace.push({
       agent: "Medicine scheduling agent",
       status: "completed",
       summary: `Added ${medicines.length} medicine(s) from ${prescriptionFile.tag}.`,
     });
+
+    plan.searchKeywords = normalizeSearchText(
+      plan.prescriptionText,
+      plan.medicines.map((medicine) => medicine.searchText),
+      plan.prescriptionFiles.map((file) => file.fileName),
+      plan.prescriptionFiles.map((file) => file.tag)
+    );
 
     await plan.save();
 
@@ -500,6 +539,14 @@ exports.updateMedicine = async (req, res) => {
     }
 
     medicine.name = String(name).trim();
+    medicine.searchText = buildMedicineSearchText(medicine, medicine.sourceFileName, medicine.prescriptionTag);
+
+    plan.searchKeywords = normalizeSearchText(
+      plan.prescriptionText,
+      plan.medicines.map((item) => item.searchText),
+      plan.prescriptionFiles.map((file) => file.fileName),
+      plan.prescriptionFiles.map((file) => file.tag)
+    );
 
     await plan.save();
     res.json(toClientPlan(plan));

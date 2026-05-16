@@ -5,10 +5,12 @@ import { Button } from '@/components/ui/button';
 import { PatientAvatar } from '@/components/PatientAvatar';
 import { InfoCard } from '@/components/InfoCard';
 import { useApp } from '@/contexts/AppContext';
+import { useSearchHighlight } from '@/hooks/useSearchHighlight';
 
 export default function ProfilePage() {
   const navigate = useNavigate();
   const { patient, role } = useApp();
+  const { isHighlighting } = useSearchHighlight();
 
   const canEdit = role === 'doctor';
 

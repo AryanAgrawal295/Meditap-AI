@@ -25,7 +25,7 @@ const navItems = [
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { isAuthenticated, isInitializing, role, logout } = useApp();
+  const { isAuthenticated, isInitializing, role, logout, setPatientContext, currentPatientId } = useApp();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarMinimized, setSidebarMinimized] = useState(false);
 
@@ -39,6 +39,17 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    const state = location.state as { patientId?: string } | null;
+    const nextPatientId = state?.patientId;
+
+    if (nextPatientId && nextPatientId !== currentPatientId) {
+      setPatientContext(nextPatientId).catch((error) => {
+        console.error('Failed to set patient context from navigation state', error);
+      });
+    }
+  }, [currentPatientId, location.state, setPatientContext]);
 
   if (isInitializing || !isAuthenticated) return null;
 
@@ -138,31 +149,34 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       <div className="flex-1 flex flex-col min-h-screen">
         {/* Top Bar for Mobile */}
         <header className="lg:hidden sticky top-0 z-40 bg-card/95 backdrop-blur-lg border-b border-border">
-          <div className="flex items-center justify-between px-4 py-3">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center">
-                <span className="text-primary-foreground font-display font-bold text-sm">M</span>
+          <div className="flex flex-col px-4 py-3 gap-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center">
+                  <span className="text-primary-foreground font-display font-bold text-sm">M</span>
+                </div>
+                <div>
+                  <h1 className="font-display font-semibold text-foreground">NFC Next Level</h1>
+                  {role && (
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${roleColors[role]}`}>
+                      {roleLabels[role]}
+                    </span>
+                  )}
+                </div>
               </div>
-              <div>
-                <h1 className="font-display font-semibold text-foreground">NFC Next Level</h1>
-                {role && (
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${roleColors[role]}`}>
-                    {roleLabels[role]}
-                  </span>
-                )}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                  className="p-2 text-muted-foreground hover:text-foreground"
+                >
+                  {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+                </button>
+                <button onClick={handleLogout} className="p-2 text-muted-foreground hover:text-destructive">
+                  <LogOut size={18} />
+                </button>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="p-2 text-muted-foreground hover:text-foreground"
-              >
-                {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
-              </button>
-              <button onClick={handleLogout} className="p-2 text-muted-foreground hover:text-destructive">
-                <LogOut size={18} />
-              </button>
-            </div>
+            <SmartSearch />
           </div>
 
           {/* Mobile Menu Dropdown */}

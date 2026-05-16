@@ -34,6 +34,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { useApp } from "@/contexts/AppContext";
+import { useSearchHighlight } from "@/hooks/useSearchHighlight";
 import {
   MedicationDose,
   MedicationMedicine,
@@ -450,6 +451,7 @@ export default function PrescriptionsPage() {
   const { toast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
+  const { isHighlighting } = useSearchHighlight();
   const [activeDose, setActiveDose] = useState<TimelineDose | null>(null);
   const [isAlarmVerification, setIsAlarmVerification] = useState(false);
   const [editingDose, setEditingDose] = useState<TimelineDose | null>(null);

@@ -77,6 +77,7 @@ export interface MedicationMedicine {
   _id: string;
   name: string;
   dosage: string;
+  searchText?: string;
   timing: string[];
   duration: string;
   durationDays: number;
@@ -106,6 +107,7 @@ export interface MedicationPlan {
   source: 'ocr' | 'manual' | 'import';
   status: 'active' | 'paused';
   prescriptionText?: string;
+  searchKeywords?: string;
   sourceFileUrl?: string;
   sourceFilePublicId?: string;
   sourceFileName?: string;
