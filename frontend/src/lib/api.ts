@@ -6,17 +6,26 @@ import {
 } from '@/lib/storage';
 
 const DEFAULT_API_BASE_URL = 'https://meditap-ai.onrender.com/api';
+const LOCAL_API_BASE_URL = 'http://localhost:3005/api';
 
 function resolveApiBaseUrl() {
   const rawValue = import.meta.env.VITE_API_BASE_URL;
 
   if (typeof rawValue !== 'string') {
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      return LOCAL_API_BASE_URL;
+    }
+
     return DEFAULT_API_BASE_URL;
   }
 
   const normalizedValue = rawValue.trim().replace(/^['"]|['"]$/g, '').replace(/\/+$/, '');
 
   if (!normalizedValue) {
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      return LOCAL_API_BASE_URL;
+    }
+
     return DEFAULT_API_BASE_URL;
   }
 

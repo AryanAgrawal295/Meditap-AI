@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlarmClock,
@@ -13,19 +14,31 @@ import {
   Pill,
   RefreshCcw,
   ShieldCheck,
+  Upload,
   XCircle,
   ExternalLink,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   MoreVertical,
-  Pause,
-  PanelLeftClose,
-  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
-  Play,
+  Plus,
   Trash2,
 } from "lucide-react";
-import { format, startOfDay, isSameDay } from "date-fns";
+import {
+  addMonths,
+  eachDayOfInterval,
+  endOfMonth,
+  endOfWeek,
+  format,
+  isSameDay,
+  isSameMonth,
+  startOfDay,
+  startOfMonth,
+  startOfWeek,
+  subMonths,
+} from "date-fns";
 import { DashboardLayout } from "@/layouts/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -36,6 +49,7 @@ import {
   MedicationDose,
   MedicationMedicine,
   MedicationPlan,
+  Prescription,
 } from "@/types/patient";
 import { cn } from "@/lib/utils";
 import PillDetector from "@/components/PillDetector";
@@ -61,8 +75,21 @@ type TimelineDose = MedicationDose & {
   medicineId: string;
   medicineName: string;
   dosage: string;
+  scheduleLabel?: string;
   prescriptionIndex?: number;
   prescriptionTag?: string;
+};
+
+type MedicineWithSchedule = MedicationMedicine & {
+  planId: string;
+  scheduleLabel: string;
+};
+
+type PrescriptionFileWithSchedule = NonNullable<
+  MedicationPlan["prescriptionFiles"]
+>[number] & {
+  planId: string;
+  scheduleLabel: string;
 };
 
 type DayGroup = {
@@ -103,7 +130,29 @@ function getDoseTone(status: MedicationDose["status"]) {
   return "bg-amber-50 text-amber-700 border-amber-200";
 }
 
-function flattenTimeline(plans: MedicationPlan[]) {
+function getDoseEventTone(status: MedicationDose["status"]) {
+  if (status === "taken") {
+    return "bg-emerald-600 text-white hover:bg-emerald-700";
+  }
+
+  if (status === "missed") {
+    return "bg-red-600 text-white hover:bg-red-700";
+  }
+
+  return "bg-amber-500 text-white hover:bg-amber-600";
+}
+
+function getScheduleLabel(plan: MedicationPlan, plans: MedicationPlan[]) {
+  const sortedPlans = [...plans].sort(
+    (a, b) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+  const index = sortedPlans.findIndex((item) => item.id === plan.id);
+
+  return `Schedule ${sortedPlans.length - index}`;
+}
+
+function flattenTimeline(plans: MedicationPlan[], allPlans: MedicationPlan[] = plans) {
   return plans
     .flatMap((plan) =>
       plan.medicines.flatMap((medicine) =>
@@ -113,6 +162,7 @@ function flattenTimeline(plans: MedicationPlan[]) {
           medicineId: medicine._id,
           medicineName: medicine.name,
           dosage: medicine.dosage,
+          scheduleLabel: getScheduleLabel(plan, allPlans),
           prescriptionIndex: medicine.prescriptionIndex,
           prescriptionTag: medicine.prescriptionTag,
         })),
@@ -147,6 +197,23 @@ function groupDosesByDay(doses: TimelineDose[]): DayGroup[] {
     .sort((a, b) => a.date.getTime() - b.date.getTime());
 }
 
+function getMonthDays(monthDate: Date) {
+  const monthStart = startOfMonth(monthDate);
+  const monthEnd = endOfMonth(monthDate);
+  const calendarStart = startOfWeek(monthStart, { weekStartsOn: 0 });
+  const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 0 });
+
+  return eachDayOfInterval({ start: calendarStart, end: calendarEnd });
+}
+
+function getDayCounts(doses: TimelineDose[]) {
+  return {
+    taken: doses.filter((dose) => dose.status === "taken").length,
+    pending: doses.filter((dose) => dose.status === "pending").length,
+    missed: doses.filter((dose) => dose.status === "missed").length,
+  };
+}
+
 function getPlanAdherence(plans: MedicationPlan[]) {
   const totals = plans.reduce(
     (acc, plan) => {
@@ -165,38 +232,18 @@ function getPlanAdherence(plans: MedicationPlan[]) {
   };
 }
 
-function getUpcomingDoses(plans: MedicationPlan[]): TimelineDose[] {
-  const allDoses = plans
-    .flatMap((plan) =>
-      plan.medicines.flatMap((medicine) =>
-        medicine.doses
-          .filter((dose) => dose.status === "pending")
-          .slice(0, 5)
-          .map((dose) => ({
-            ...dose,
-            planId: plan.id,
-            medicineId: medicine._id,
-            medicineName: medicine.name,
-            dosage: medicine.dosage,
-            prescriptionIndex: medicine.prescriptionIndex,
-            prescriptionTag: medicine.prescriptionTag,
-          })),
-      ),
-    )
-    .sort(
-      (a, b) =>
-        new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime(),
-    )
-    .slice(0, 5);
-  return allDoses;
-}
-
 function MedicineCard({
   medicine,
   onEditName,
+  isOpen,
+  onToggle,
+  canEdit = true,
 }: {
-  medicine: MedicationMedicine;
-  onEditName: (medicine: MedicationMedicine) => void;
+  medicine: MedicationMedicine & { scheduleLabel?: string };
+  onEditName: (medicine: MedicineWithSchedule) => void;
+  isOpen: boolean;
+  onToggle: () => void;
+  canEdit?: boolean;
 }) {
   const completed = medicine.doses.filter(
     (dose) => dose.status === "taken",
@@ -206,8 +253,12 @@ function MedicineCard({
     : "Not predicted";
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <div className="flex items-start justify-between gap-3">
+    <div className="rounded-lg border border-border bg-card">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-start justify-between gap-3 p-4 text-left transition-colors hover:bg-secondary/40"
+      >
         <div className="min-w-0">
           <h3 className="font-medium text-foreground truncate">
             {medicine.name}
@@ -216,40 +267,61 @@ function MedicineCard({
             {medicine.dosage} • {medicine.frequency} • {medicine.duration}
           </p>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <Button variant="ghost" size="icon" onClick={() => onEditName(medicine)}>
-            <Edit3 size={16} />
-          </Button>
+        <div className="flex items-center gap-2 shrink-0">
           <Pill className="text-primary" size={20} />
+          <ChevronDown
+            size={18}
+            className={cn(
+              "text-muted-foreground transition-transform duration-200",
+              isOpen && "rotate-180",
+            )}
+          />
         </div>
-      </div>
-      <span className="mt-3 inline-flex rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
-        {medicine.prescriptionTag ||
-          `Prescription ${medicine.prescriptionIndex || 1}`}
-      </span>
-      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-        <div>
-          <p className="text-xs uppercase text-muted-foreground">Timing</p>
-          <p className="font-medium text-foreground capitalize">
-            {medicine.timing.join(", ")}
-          </p>
+      </button>
+
+      {isOpen && (
+        <div className="border-t border-border p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+              {medicine.prescriptionTag ||
+                `Prescription ${medicine.prescriptionIndex || 1}`}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="ml-auto h-8 w-8"
+              onClick={() => onEditName(medicine)}
+              disabled={!canEdit}
+              title="Edit medicine"
+            >
+              <Edit3 size={16} />
+            </Button>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-xs uppercase text-muted-foreground">Timing</p>
+              <p className="font-medium text-foreground capitalize">
+                {medicine.timing.join(", ")}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs uppercase text-muted-foreground">Tracked</p>
+              <p className="font-medium text-foreground">
+                {completed}/{medicine.doses.length} doses
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 rounded-md bg-secondary/60 p-3 text-sm">
+            <div className="flex items-center gap-2 text-foreground">
+              <RefreshCcw size={15} className="text-primary" />
+              <span className="font-medium">Refill prediction</span>
+            </div>
+            <p className="text-muted-foreground mt-1">
+              Reminder around {refillDate}
+            </p>
+          </div>
         </div>
-        <div>
-          <p className="text-xs uppercase text-muted-foreground">Tracked</p>
-          <p className="font-medium text-foreground">
-            {completed}/{medicine.doses.length} doses
-          </p>
-        </div>
-      </div>
-      <div className="mt-4 rounded-md bg-secondary/60 p-3 text-sm">
-        <div className="flex items-center gap-2 text-foreground">
-          <RefreshCcw size={15} className="text-primary" />
-          <span className="font-medium">Refill prediction</span>
-        </div>
-        <p className="text-muted-foreground mt-1">
-          Reminder around {refillDate}
-        </p>
-      </div>
+      )}
     </div>
   );
 }
@@ -261,6 +333,8 @@ function DayCard({
   onMarkMissed,
   onMarkTaken,
   isPaused,
+  defaultOpen = false,
+  showScheduleLabel = false,
   updatingDoseId,
 }: {
   dayGroup: DayGroup;
@@ -269,9 +343,11 @@ function DayCard({
   onMarkMissed: (dose: TimelineDose) => void;
   onMarkTaken: (dose: TimelineDose) => void;
   isPaused: boolean;
+  defaultOpen?: boolean;
+  showScheduleLabel?: boolean;
   updatingDoseId: string | null;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(defaultOpen);
   const takenCount = dayGroup.doses.filter((d) => d.status === "taken").length;
   const missedCount = dayGroup.doses.filter(
     (d) => d.status === "missed",
@@ -282,6 +358,10 @@ function DayCard({
 
   const dateDisplay = format(dayGroup.date, "EEEE, MMM d");
   const isToday = isSameDay(dayGroup.date, new Date());
+
+  useEffect(() => {
+    setIsOpen(defaultOpen);
+  }, [defaultOpen, dayGroup.dateString]);
 
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden">
@@ -358,9 +438,17 @@ function DayCard({
                           {dose.prescriptionTag ||
                             `Prescription ${dose.prescriptionIndex || 1}`}
                         </span>
+                        {showScheduleLabel && dose.scheduleLabel && (
+                          <span className="ml-2 mt-1 inline-flex rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
+                            {dose.scheduleLabel}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <div className="flex min-w-0 flex-wrap items-center gap-2 lg:max-w-[18rem] lg:justify-end">
+                    <div
+                      className="flex min-w-0 flex-wrap items-center gap-2 lg:max-w-[18rem] lg:justify-end"
+                      data-helpman="dose-actions"
+                    >
                       <span
                         className={cn(
                           "rounded-full border px-2.5 py-1 text-xs font-medium capitalize",
@@ -369,54 +457,55 @@ function DayCard({
                       >
                         {dose.status}
                       </span>
-                      {dose.status === "pending" && (
-                        <>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
                           <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => onDoseClick(dose)}
-                            disabled={isPaused || isUpdatingDose}
-                          >
-                            <Camera size={14} />
-                            Verify
-                          </Button>
-                          <Button
+                            type="button"
                             variant="outline"
-                            size="sm"
-                            className="border-emerald-600 text-emerald-700 hover:bg-emerald-600 hover:text-white"
-                            onClick={() => onMarkTaken(dose)}
+                            size="icon"
+                            className="h-8 w-8"
                             disabled={isPaused || isUpdatingDose}
+                            data-helpman="dose-actions"
                           >
                             {isUpdatingDose ? (
                               <RefreshCcw size={14} className="animate-spin" />
                             ) : (
-                              <Check size={14} />
+                              <MoreVertical size={16} />
                             )}
-                            Done
                           </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="border-red-600 text-red-700 hover:bg-red-600 hover:text-white"
-                            onClick={() => onMarkMissed(dose)}
-                            disabled={isPaused || isUpdatingDose}
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onSelect={() => onDoseClick(dose)}
+                            data-helpman="verify-dose"
                           >
-                            <XCircle size={14} />
+                            <Camera size={14} className="mr-2" />
+                            Verify
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => onMarkTaken(dose)}
+                            data-helpman="done-dose"
+                          >
+                            <Check size={14} className="mr-2" />
+                            Done
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => onMarkMissed(dose)}
+                            data-helpman="missed-dose"
+                          >
+                            <XCircle size={14} className="mr-2" />
                             Missed
-                          </Button>
-                        </>
-                      )}
-	                      {["pending", "missed"].includes(dose.status) && (
-	                        <Button
-	                          variant="outline"
-	                          size="sm"
-	                          onClick={() => onEditTime(dose)}
-	                          disabled={isPaused || isUpdatingDose}
-	                        >
-	                          <Clock size={14} />
-	                          Reschedule
-	                        </Button>
-	                      )}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onSelect={() => onEditTime(dose)}
+                            data-helpman="reschedule-dose"
+                          >
+                            <Clock size={14} className="mr-2" />
+                            Reschedule
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                       {isPaused && dose.status === "pending" && (
                         <span className="text-xs font-medium text-muted-foreground">
                           Paused
@@ -433,15 +522,296 @@ function DayCard({
   );
 }
 
+function DoseMenu({
+  dose,
+  trigger,
+  onDoseClick,
+  onEditTime,
+  onMarkMissed,
+  onMarkTaken,
+  updatingDoseId,
+}: {
+  dose: TimelineDose;
+  trigger: ReactNode;
+  onDoseClick: (dose: TimelineDose) => void;
+  onEditTime: (dose: TimelineDose) => void;
+  onMarkMissed: (dose: TimelineDose) => void;
+  onMarkTaken: (dose: TimelineDose) => void;
+  updatingDoseId: string | null;
+}) {
+  const doseKey = `${dose.planId}-${dose.medicineId}-${dose._id}`;
+  const isUpdatingDose = updatingDoseId === doseKey;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild disabled={isUpdatingDose}>
+        {trigger}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem onSelect={() => onDoseClick(dose)}>
+          <Camera size={14} className="mr-2" />
+          Verify
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onMarkTaken(dose)}>
+          <Check size={14} className="mr-2" />
+          Done
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onMarkMissed(dose)}>
+          <XCircle size={14} className="mr-2" />
+          Missed
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => onEditTime(dose)}>
+          <Clock size={14} className="mr-2" />
+          Reschedule
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function CalendarSchedule({
+  dayGroups,
+  monthDate,
+  onMonthChange,
+  onDoseClick,
+  onEditTime,
+  onMarkMissed,
+  onMarkTaken,
+  updatingDoseId,
+}: {
+  dayGroups: DayGroup[];
+  monthDate: Date;
+  onMonthChange: (date: Date) => void;
+  onDoseClick: (dose: TimelineDose) => void;
+  onEditTime: (dose: TimelineDose) => void;
+  onMarkMissed: (dose: TimelineDose) => void;
+  onMarkTaken: (dose: TimelineDose) => void;
+  updatingDoseId: string | null;
+}) {
+  const [selectedDay, setSelectedDay] = useState<DayGroup | null>(null);
+  const days = useMemo(() => getMonthDays(monthDate), [monthDate]);
+  const groupsByDate = useMemo(
+    () => new Map(dayGroups.map((group) => [group.dateString, group])),
+    [dayGroups],
+  );
+  const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  return (
+    <>
+      <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <div className="flex flex-col gap-3 border-b border-border p-3 sm:flex-row sm:items-center sm:justify-between">
+          <h3 className="font-display text-xl text-foreground sm:text-2xl">
+            {format(monthDate, "MMMM yyyy")}
+          </h3>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 rounded-full"
+              onClick={() => onMonthChange(subMonths(monthDate, 1))}
+              title="Previous month"
+            >
+              <ChevronLeft size={18} />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 rounded-full px-3"
+              onClick={() => onMonthChange(new Date())}
+            >
+              Today
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 rounded-full"
+              onClick={() => onMonthChange(addMonths(monthDate, 1))}
+              title="Next month"
+            >
+              <ChevronRight size={18} />
+            </Button>
+          </div>
+        </div>
+
+        <div className="min-w-[44rem] overflow-x-auto">
+          <div className="grid grid-cols-7 border-b border-border bg-secondary/30">
+            {weekDays.map((day) => (
+              <div
+                key={day}
+                className="px-2 py-2 text-center text-xs font-medium text-muted-foreground"
+              >
+                {day}
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7">
+            {days.map((day) => {
+              const dateString = format(startOfDay(day), "yyyy-MM-dd");
+              const dayGroup = groupsByDate.get(dateString);
+              const doses = dayGroup?.doses || [];
+              const visibleDoses = doses.slice(0, 3);
+              const hiddenDoseCount = Math.max(0, doses.length - visibleDoses.length);
+              const counts = getDayCounts(doses);
+              const isCurrentMonth = isSameMonth(day, monthDate);
+              const isCurrentDay = isSameDay(day, new Date());
+
+              return (
+                <div
+                  key={dateString}
+                  className={cn(
+                    "min-h-[7rem] border-b border-r border-border p-1.5",
+                    !isCurrentMonth && "bg-secondary/20 text-muted-foreground",
+                    isCurrentDay && "bg-primary/5",
+                  )}
+                >
+                  <div className="mb-1.5 flex items-start justify-between gap-1.5">
+                    <div
+                      className={cn(
+                        "flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-xs font-semibold",
+                        isCurrentDay
+                          ? "bg-primary text-primary-foreground"
+                          : "text-foreground",
+                        !isCurrentMonth && !isCurrentDay && "text-muted-foreground",
+                      )}
+                    >
+                      {format(day, isCurrentMonth && day.getDate() === 1 ? "MMM d" : "d")}
+                    </div>
+                    {doses.length > 0 && (
+                      <div className="flex shrink-0 items-center gap-0.5 text-[0.6rem] font-medium">
+                        {counts.taken > 0 && (
+                          <span className="rounded-full bg-emerald-100 px-1 py-0.5 text-emerald-700">
+                            {counts.taken}
+                          </span>
+                        )}
+                        {counts.pending > 0 && (
+                          <span className="rounded-full bg-amber-100 px-1 py-0.5 text-amber-700">
+                            {counts.pending}
+                          </span>
+                        )}
+                        {counts.missed > 0 && (
+                          <span className="rounded-full bg-red-100 px-1 py-0.5 text-red-700">
+                            {counts.missed}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-0.5">
+                    {visibleDoses.map((dose) => (
+                      <DoseMenu
+                        key={`${dose.planId}-${dose._id}`}
+                        dose={dose}
+                        onDoseClick={onDoseClick}
+                        onEditTime={onEditTime}
+                        onMarkMissed={onMarkMissed}
+                        onMarkTaken={onMarkTaken}
+                        updatingDoseId={updatingDoseId}
+                        trigger={
+                          <button
+                            type="button"
+                            className={cn(
+                              "flex h-5 w-full items-center gap-1 rounded px-1.5 text-left text-[0.68rem] font-medium transition-colors",
+                              getDoseEventTone(dose.status),
+                            )}
+                            title={`${dose.medicineName} at ${format(new Date(dose.scheduledAt), "hh:mm a")}`}
+                          >
+                            <Pill size={10} className="shrink-0" />
+                            <span className="truncate">{dose.medicineName}</span>
+                          </button>
+                        }
+                      />
+                    ))}
+                    {hiddenDoseCount > 0 && dayGroup && (
+                      <button
+                        type="button"
+                        className="px-1 text-[0.68rem] font-medium text-muted-foreground hover:text-foreground"
+                        onClick={() => setSelectedDay(dayGroup)}
+                      >
+                        +{hiddenDoseCount} more
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <Dialog open={Boolean(selectedDay)} onOpenChange={(open) => !open && setSelectedDay(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedDay ? format(selectedDay.date, "EEEE, MMM d") : "Doses"}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedDay
+                ? `${selectedDay.doses.length} scheduled medicine dose${selectedDay.doses.length === 1 ? "" : "s"}`
+                : "Scheduled medicine doses"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
+            {selectedDay?.doses.map((dose) => (
+              <div
+                key={`${dose.planId}-${dose._id}`}
+                className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card p-3"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-foreground">{dose.medicineName}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {dose.dosage} at {format(new Date(dose.scheduledAt), "hh:mm a")}
+                  </p>
+                  <span className="mt-1 inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                    {dose.prescriptionTag || `Prescription ${dose.prescriptionIndex || 1}`}
+                  </span>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-xs font-medium capitalize",
+                      getDoseTone(dose.status),
+                    )}
+                  >
+                    {dose.status}
+                  </span>
+                  <DoseMenu
+                    dose={dose}
+                    onDoseClick={onDoseClick}
+                    onEditTime={onEditTime}
+                    onMarkMissed={onMarkMissed}
+                    onMarkTaken={onMarkTaken}
+                    updatingDoseId={updatingDoseId}
+                    trigger={
+                      <Button type="button" variant="outline" size="icon" className="h-8 w-8">
+                        <MoreVertical size={16} />
+                      </Button>
+                    }
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export default function PrescriptionsPage() {
   const {
     medicationPlans,
+    prescriptions,
+    uploadPrescriptionForSchedule,
+    addPrescriptionFromRecordToSchedule,
+    deletePrescriptionFromSchedule,
     verifyDoseWithAI,
     updateDoseStatus,
     updateDoseSchedule,
     updateMedicine,
-    updateMedicationPlanStatus,
-    deleteMedicationPlan,
   } = useApp();
   const { toast } = useToast();
   const location = useLocation();
@@ -452,15 +822,13 @@ export default function PrescriptionsPage() {
   const [editingDose, setEditingDose] = useState<TimelineDose | null>(null);
   const [scheduleTimeValue, setScheduleTimeValue] = useState("");
   const [isUpdatingSchedule, setIsUpdatingSchedule] = useState(false);
-  const [editingMedicine, setEditingMedicine] = useState<MedicationMedicine | null>(null);
+  const [editingMedicine, setEditingMedicine] = useState<MedicineWithSchedule | null>(null);
   const [medicineNameValue, setMedicineNameValue] = useState("");
   const [isUpdatingMedicine, setIsUpdatingMedicine] = useState(false);
-  const [isChangingPlanStatus, setIsChangingPlanStatus] = useState(false);
-  const [isDeletingPlan, setIsDeletingPlan] = useState(false);
+  const [isUploadingPrescription, setIsUploadingPrescription] = useState(false);
   const [updatingDoseId, setUpdatingDoseId] = useState<string | null>(null);
-  const [activeScheduleId, setActiveScheduleId] = useState<string>("");
-  const [showMedicinesDrawer, setShowMedicinesDrawer] = useState(false);
-  const [isSchedulesSidebarMinimized, setIsSchedulesSidebarMinimized] = useState(false);
+  const [openMedicineId, setOpenMedicineId] = useState<string | null>(null);
+  const [showPrescriptionFiles, setShowPrescriptionFiles] = useState(false);
   const [isDetailsSidebarMinimized, setIsDetailsSidebarMinimized] = useState(false);
 
   useEffect(() => {
@@ -469,7 +837,6 @@ export default function PrescriptionsPage() {
 
     if (!alarmDose) return;
 
-    setActiveScheduleId(alarmDose.planId);
     setActiveDose(alarmDose);
     setIsAlarmVerification(true);
     navigate(location.pathname, { replace: true, state: null });
@@ -496,12 +863,7 @@ export default function PrescriptionsPage() {
     };
   }, [activeDose, isAlarmVerification, navigate]);
 
-  const activePlan = useMemo(
-    () => medicationPlans.find((plan) => plan.id === activeScheduleId) || null,
-    [activeScheduleId, medicationPlans],
-  );
-  const isActivePlanPaused = activePlan?.status === "paused";
-  const visiblePlans = useMemo(
+  const timelinePlans = useMemo(
     () =>
       [...medicationPlans].sort(
         (a, b) =>
@@ -509,107 +871,151 @@ export default function PrescriptionsPage() {
       ),
     [medicationPlans],
   );
+  const primaryPlan = timelinePlans[0] || null;
   const timeline = useMemo(
-    () => flattenTimeline(activePlan ? [activePlan] : []),
-    [activePlan],
+    () => flattenTimeline(timelinePlans, medicationPlans),
+    [timelinePlans, medicationPlans],
   );
   const dayGroups = useMemo(() => groupDosesByDay(timeline), [timeline]);
   const adherence = useMemo(
-    () => getPlanAdherence(activePlan ? [activePlan] : []),
-    [activePlan],
+    () => getPlanAdherence(timelinePlans),
+    [timelinePlans],
   );
-  const upcomingDoses = useMemo(
-    () => getUpcomingDoses(medicationPlans),
-    [medicationPlans],
+  const refillAlerts = timelinePlans.flatMap((plan) => plan.refillAlerts || []);
+  const visibleMedicines = useMemo<MedicineWithSchedule[]>(
+    () =>
+      timelinePlans.flatMap((plan) =>
+        plan.medicines.map((medicine) => ({
+          ...medicine,
+          planId: plan.id,
+          scheduleLabel: getScheduleLabel(plan, medicationPlans),
+        })),
+      ),
+    [timelinePlans, medicationPlans],
   );
-  const refillAlerts = activePlan?.refillAlerts || [];
-  const prescriptionFiles = activePlan?.prescriptionFiles?.length
-    ? activePlan.prescriptionFiles
-    : activePlan?.sourceFileUrl
-      ? [
-          {
-            index: 1,
-            tag: "Prescription 1",
-            fileUrl: activePlan.sourceFileUrl,
-            fileName: activePlan.sourceFileName,
-            uploadedAt: activePlan.createdAt,
-          },
-        ]
-      : [];
+  const prescriptionFiles = useMemo<PrescriptionFileWithSchedule[]>(
+    () =>
+      timelinePlans.flatMap((plan) => {
+        const scheduleLabel = getScheduleLabel(plan, medicationPlans);
+        const activePrescriptionIndexes = new Set(
+          plan.medicines.map((medicine) => Number(medicine.prescriptionIndex) || 1),
+        );
+        const savedFiles = (plan.prescriptionFiles || []).filter((file) =>
+          activePrescriptionIndexes.has(Number(file.index) || 1),
+        );
+        const files = savedFiles.length
+          ? savedFiles
+          : plan.sourceFileUrl && activePrescriptionIndexes.has(1)
+            ? [
+                {
+                  index: 1,
+                  tag: "Prescription 1",
+                  fileUrl: plan.sourceFileUrl,
+                  fileName: plan.sourceFileName,
+                  uploadedAt: plan.createdAt,
+                },
+              ]
+            : [];
 
-  useEffect(() => {
-    if (activeScheduleId === "") {
-      setActiveScheduleId(medicationPlans[0]?.id || "");
-      return;
-    }
+        return files.map((file) => ({
+          ...file,
+          planId: plan.id,
+          scheduleLabel,
+        }));
+      }),
+    [timelinePlans, medicationPlans],
+  );
+  const uploadButtonLabel = prescriptionFiles.length === 0 ? "Upload Prescription" : "Add Prescription";
 
-    if (!medicationPlans.some((plan) => plan.id === activeScheduleId)) {
-      setActiveScheduleId(medicationPlans[0]?.id || "");
-    }
-  }, [activeScheduleId, medicationPlans]);
-
-  const handleToggleScheduleStatus = async (plan: MedicationPlan | null = activePlan) => {
-    if (!plan) return;
-
-    const nextStatus = plan.status === "paused" ? "active" : "paused";
+  const handlePrescriptionUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
     try {
-      setIsChangingPlanStatus(true);
-      await updateMedicationPlanStatus({
-        planId: plan.id,
-        status: nextStatus,
-      });
+      setIsUploadingPrescription(true);
+      await uploadPrescriptionForSchedule(file, primaryPlan?.id);
       toast({
-        title: nextStatus === "active" ? "Schedule started" : "Schedule paused",
+        title: "Prescription added",
         description:
-          nextStatus === "active"
-            ? "Dose tracking is available again."
-            : "Dose tracking is paused until you start this schedule.",
+          "Medicines were added to the merged adherence schedule.",
       });
     } catch (error) {
       toast({
-        title: "Could not update schedule",
+        title: "Upload failed",
         description:
           error instanceof Error
             ? error.message
-            : "The schedule status could not be changed.",
+            : "Could not upload the prescription.",
         variant: "destructive",
       });
     } finally {
-      setIsChangingPlanStatus(false);
+      setIsUploadingPrescription(false);
+      event.target.value = "";
     }
   };
 
-  const handleDeleteSchedule = async (plan: MedicationPlan | null = activePlan) => {
-    if (!plan) return;
-
-    const shouldDelete = window.confirm(
-      "Delete this medication schedule? This cannot be undone.",
+  const handleAddPrescriptionFromRecord = async () => {
+    const selectedPrescription = prescriptions.find(
+      (prescription) => prescription.id === selectedPrescriptionId,
     );
 
-    if (!shouldDelete) return;
+    if (!selectedPrescription) return;
 
     try {
-      setIsDeletingPlan(true);
-      const deletedPlanId = plan.id;
-      const nextPlan = visiblePlans.find((plan) => plan.id !== deletedPlanId);
-      await deleteMedicationPlan(deletedPlanId);
-      setActiveScheduleId(nextPlan?.id || "new");
+      setIsAddingFromRecord(true);
+      await addPrescriptionFromRecordToSchedule(selectedPrescription, primaryPlan?.id);
       toast({
-        title: "Schedule deleted",
-        description: "The medication schedule was removed.",
+        title: "Prescription added",
+        description: "Medicines from the selected medical record were added to the schedule.",
       });
+      setSelectedPrescriptionId("");
+      setIsRecordPickerOpen(false);
     } catch (error) {
       toast({
-        title: "Could not delete schedule",
+        title: "Could not add prescription",
         description:
           error instanceof Error
             ? error.message
-            : "The medication schedule could not be deleted.",
+            : "The selected prescription could not be added.",
         variant: "destructive",
       });
     } finally {
-      setIsDeletingPlan(false);
+      setIsAddingFromRecord(false);
+    }
+  };
+
+  const handleDeletePrescription = async (file: PrescriptionFileWithSchedule) => {
+    const confirmed = window.confirm(
+      `Delete ${file.tag}? Its medicines and doses will be removed from this schedule.`,
+    );
+
+    if (!confirmed) return;
+
+    const deleteKey = `${file.planId}-${file.index}`;
+
+    try {
+      setDeletingPrescriptionKey(deleteKey);
+      await deletePrescriptionFromSchedule({
+        planId: file.planId,
+        prescriptionIndex: file.index,
+      });
+      toast({
+        title: "Prescription deleted",
+        description: `${file.tag} and its medicines were removed from the schedule.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Could not delete prescription",
+        description:
+          error instanceof Error
+            ? error.message
+            : "The prescription could not be removed.",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingPrescriptionKey(null);
     }
   };
 
@@ -706,18 +1112,18 @@ export default function PrescriptionsPage() {
     }
   };
 
-  const openMedicineEditor = (medicine: MedicationMedicine) => {
+  const openMedicineEditor = (medicine: MedicineWithSchedule) => {
     setEditingMedicine(medicine);
     setMedicineNameValue(medicine.name);
   };
 
   const handleMedicineSave = async () => {
-    if (!activePlan || !editingMedicine || !medicineNameValue.trim()) return;
+    if (!editingMedicine || !medicineNameValue.trim()) return;
 
     try {
       setIsUpdatingMedicine(true);
       await updateMedicine({
-        planId: activePlan.id,
+        planId: editingMedicine.planId,
         medicineId: editingMedicine._id,
         name: medicineNameValue.trim(),
       });
@@ -751,212 +1157,68 @@ export default function PrescriptionsPage() {
               Medication Adherence
             </h1>
             <p className="text-muted-foreground mt-1">
-              Review schedules created automatically from scanned
-              prescriptions in Add Medical Record.
+              Review the single adherence schedule created from all selected
+              prescriptions.
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Button
               type="button"
+              variant="outline"
+              onClick={() => setIsRecordPickerOpen(true)}
+            >
+              <Plus size={16} />
+              Add from Records
+            </Button>
+            <Button
+              type="button"
               variant="medical"
               onClick={() => navigate("/add-medical-record")}
             >
-              Add Medical Record
+              {isUploadingPrescription ? (
+                <RefreshCcw size={16} className="animate-spin" />
+              ) : (
+                <Upload size={16} />
+              )}
+              {isUploadingPrescription
+                ? "Uploading..."
+                : uploadButtonLabel}
             </Button>
           </div>
         </div>
 
-        <div
-          className={cn(
-            "grid gap-6",
-            isSchedulesSidebarMinimized ? "xl:grid-cols-[4.5rem_1fr]" : "xl:grid-cols-[20rem_1fr]",
-          )}
-        >
-          <aside className="space-y-4">
-            <section className="rounded-lg border border-border bg-card p-4">
-              <div className={cn("mb-4 flex items-center justify-between gap-3", isSchedulesSidebarMinimized && "justify-center")}>
-                {!isSchedulesSidebarMinimized && (
-                <div>
-                  <h2 className="font-display text-xl text-foreground">
-                    Schedules
-                  </h2>
-                  <p className="text-sm text-muted-foreground">
-                    Old and new medicine plans.
+        <div className="space-y-6">
+            <div className="flex items-start gap-2" data-helpman="adherence-summary">
+              <div className="grid flex-1 gap-4 md:grid-cols-4">
+                <div className="rounded-lg border border-border bg-card p-4">
+                  <HeartPulse size={20} className="text-primary mb-3" />
+                  <p className="text-sm text-muted-foreground">Adherence</p>
+                  <p className="text-2xl font-semibold text-foreground">
+                    {adherence.rate}%
+                  </p>
+                  <Progress value={adherence.rate} className="mt-3" />
+                </div>
+                <div className="rounded-lg border border-border bg-card p-4">
+                  <CheckCircle2 size={20} className="text-emerald-600 mb-3" />
+                  <p className="text-sm text-muted-foreground">Taken</p>
+                  <p className="text-2xl font-semibold text-foreground">
+                    {adherence.taken}
                   </p>
                 </div>
-                )}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setIsSchedulesSidebarMinimized((value) => !value)}
-                  title={isSchedulesSidebarMinimized ? "Expand schedules" : "Minimize schedules"}
-                >
-                  {isSchedulesSidebarMinimized ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
-                </Button>
-              </div>
-
-              <div className="space-y-2">
-                {visiblePlans.map((plan, index) => {
-                  const isActive = activeScheduleId === plan.id;
-                  const fileCount =
-                    plan.prescriptionFiles?.length ||
-                    (plan.sourceFileUrl ? 1 : 0);
-                  return (
-	                    <div
-	                      key={plan.id}
-	                      className={cn(
-	                        "w-full rounded-lg border px-3 py-3 transition-all",
-                          isSchedulesSidebarMinimized && "px-2 py-2",
-	                        isActive
-	                          ? "border-primary bg-primary text-primary-foreground shadow-medical"
-	                          : "border-border bg-background text-foreground hover:bg-secondary/60",
-	                      )}
-	                    >
-	                      <div className={cn("flex items-start gap-2", isSchedulesSidebarMinimized && "justify-center")}>
-	                        <button
-	                          type="button"
-	                          onClick={() => setActiveScheduleId(plan.id)}
-	                          className={cn("min-w-0 flex-1 text-left", isSchedulesSidebarMinimized && "flex-none text-center")}
-                            title={isSchedulesSidebarMinimized ? `Schedule ${visiblePlans.length - index}` : undefined}
-	                        >
-                            {isSchedulesSidebarMinimized ? (
-                              <CalendarDays size={18} className="mx-auto" />
-                            ) : (
-	                            <p className="font-medium truncate">
-	                              Schedule {visiblePlans.length - index}
-	                            </p>
-                            )}
-                            {!isSchedulesSidebarMinimized && (
-                            <>
-	                          <p
-	                            className={cn(
-                              "mt-1 text-xs",
-                              isActive
-                                ? "text-primary-foreground/80"
-                                : "text-muted-foreground",
-                            )}
-                          >
-                            {new Date(plan.createdAt).toLocaleString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                              hour: "numeric",
-                              minute: "2-digit",
-                            })}
-                          </p>
-                          <p
-                            className={cn(
-                              "mt-1 text-xs",
-                              isActive
-                                ? "text-primary-foreground/80"
-                                : "text-muted-foreground",
-                            )}
-                          >
-                            {plan.medicines.length} medicines • {fileCount || 1}{" "}
-                            prescription{(fileCount || 1) === 1 ? "" : "s"}
-                          </p>
-                          <span
-                            className={cn(
-                              "mt-2 inline-flex rounded-full px-2 py-0.5 text-xs font-medium capitalize",
-                              plan.status === "paused"
-                                ? isActive
-                                  ? "bg-primary-foreground/20 text-primary-foreground"
-                                  : "bg-amber-100 text-amber-700"
-                                : isActive
-                                  ? "bg-primary-foreground/20 text-primary-foreground"
-                                  : "bg-emerald-100 text-emerald-700",
-                            )}
-	                          >
-	                            {plan.status || "active"}
-	                          </span>
-                            </>
-                            )}
-	                        </button>
-	                        {!isSchedulesSidebarMinimized && (
-                          <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className={cn(
-                                "h-8 w-8 shrink-0",
-                                isActive
-                                  ? "text-primary-foreground hover:bg-primary-foreground/15 hover:text-primary-foreground"
-                                  : "text-muted-foreground",
-                              )}
-                            >
-                              <MoreVertical size={16} />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onSelect={() => void handleToggleScheduleStatus(plan)}
-                              disabled={isChangingPlanStatus || isDeletingPlan}
-                            >
-                              {isChangingPlanStatus && activeScheduleId === plan.id ? (
-                                <RefreshCcw size={14} className="mr-2 animate-spin" />
-                              ) : plan.status === "paused" ? (
-                                <Play size={14} className="mr-2" />
-                              ) : (
-                                <Pause size={14} className="mr-2" />
-                              )}
-                              {plan.status === "paused" ? "Start schedule" : "Pause schedule"}
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onSelect={() => void handleDeleteSchedule(plan)}
-                              disabled={isChangingPlanStatus || isDeletingPlan}
-                            >
-                              {isDeletingPlan && activeScheduleId === plan.id ? (
-                                <RefreshCcw size={14} className="mr-2 animate-spin" />
-                              ) : (
-                                <Trash2 size={14} className="mr-2" />
-                              )}
-                              Delete schedule
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-	                        </DropdownMenu>
-                          )}
-	                      </div>
-	                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          </aside>
-
-          <div className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-4">
-              <div className="rounded-lg border border-border bg-card p-4">
-                <HeartPulse size={20} className="text-primary mb-3" />
-                <p className="text-sm text-muted-foreground">Adherence</p>
-                <p className="text-2xl font-semibold text-foreground">
-                  {adherence.rate}%
-                </p>
-                <Progress value={adherence.rate} className="mt-3" />
-              </div>
-              <div className="rounded-lg border border-border bg-card p-4">
-                <CheckCircle2 size={20} className="text-emerald-600 mb-3" />
-                <p className="text-sm text-muted-foreground">Taken</p>
-                <p className="text-2xl font-semibold text-foreground">
-                  {adherence.taken}
-                </p>
-              </div>
-              <div className="rounded-lg border border-border bg-card p-4">
-                <Clock size={20} className="text-amber-600 mb-3" />
-                <p className="text-sm text-muted-foreground">Pending</p>
-                <p className="text-2xl font-semibold text-foreground">
-                  {adherence.pending}
-                </p>
-              </div>
-              <div className="rounded-lg border border-border bg-card p-4">
-                <Bell size={20} className="text-red-600 mb-3" />
-                <p className="text-sm text-muted-foreground">Refill Alerts</p>
-                <p className="text-2xl font-semibold text-foreground">
-                  {refillAlerts.length}
-                </p>
+                <div className="rounded-lg border border-border bg-card p-4">
+                  <Clock size={20} className="text-amber-600 mb-3" />
+                  <p className="text-sm text-muted-foreground">Pending</p>
+                  <p className="text-2xl font-semibold text-foreground">
+                    {adherence.pending}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-border bg-card p-4">
+                  <Bell size={20} className="text-red-600 mb-3" />
+                  <p className="text-sm text-muted-foreground">Refill Alerts</p>
+                  <p className="text-2xl font-semibold text-foreground">
+                    {refillAlerts.length}
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -966,21 +1228,18 @@ export default function PrescriptionsPage() {
                 isDetailsSidebarMinimized ? "xl:grid-cols-[1fr_4.5rem]" : "xl:grid-cols-[1fr_22rem]",
               )}
             >
-              <section className="rounded-lg border border-border bg-card p-4 lg:p-5">
+              <section className="rounded-lg border border-border bg-card p-4 lg:p-5" data-helpman="adherence-timeline">
                 <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h2 className="font-display text-xl text-foreground">
-                      {activePlan ? "Medicine Timeline" : "No Adherence Schedule Yet"}
+                      Adherence Schedule
                     </h2>
                     <p className="text-sm text-muted-foreground">
-                      {activePlan
-                        ? isActivePlanPaused
-                          ? "This schedule is paused. Start it to continue dose tracking."
-                          : "Daily tracking organized by date."
-                        : "Scan the prescription in Add Medical Record. Medicines and dose timings will appear here automatically."}
+                      All selected prescriptions are combined into this single
+                      dose timeline.
                     </p>
                   </div>
-                  {!activePlan && (
+                  {timeline.length === 0 && (
                     <AlarmClock className="text-primary" size={22} />
                   )}
                 </div>
@@ -993,30 +1252,44 @@ export default function PrescriptionsPage() {
                         size={32}
                       />
                       <p className="mt-3 font-medium text-foreground">
-                        {activePlan
-                          ? "No medicines in this schedule yet"
-                          : "No schedule available"}
+                        No schedule created yet
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        {activePlan
-                          ? "This schedule exists but does not contain medicines yet."
-                          : "Create a medical record from a scanned prescription to build the adherence timeline."}
+                        Add prescriptions to generate the adherence timeline.
                       </p>
                       <Button
                         type="button"
                         variant="outline"
                         className="mt-4"
-                        onClick={() => navigate("/add-medical-record")}
+                        onClick={() => prescriptionInputRef.current?.click()}
+                        disabled={isUploadingPrescription}
                       >
-                        Add Medical Record
+                        {isUploadingPrescription ? (
+                          <RefreshCcw size={16} className="animate-spin" />
+                        ) : (
+                          <Upload size={16} />
+                        )}
+                        {isUploadingPrescription
+                          ? "Uploading..."
+                          : uploadButtonLabel}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="mt-4 sm:ml-2"
+                        onClick={() => setIsRecordPickerOpen(true)}
+                      >
+                        <Plus size={16} />
+                        Add from Records
                       </Button>
                     </div>
                   )}
 
-                  {dayGroups.map((dayGroup) => (
-                    <DayCard
-                      key={dayGroup.dateString}
-                      dayGroup={dayGroup}
+                  {timeline.length > 0 && (
+                    <CalendarSchedule
+                      dayGroups={dayGroups}
+                      monthDate={calendarMonth}
+                      onMonthChange={setCalendarMonth}
                       onDoseClick={(dose) => {
                         setIsAlarmVerification(false);
                         setActiveDose(dose);
@@ -1024,20 +1297,19 @@ export default function PrescriptionsPage() {
                       onEditTime={openScheduleEditor}
                       onMarkMissed={(dose) => void handleDoseStatusUpdate(dose, "missed")}
                       onMarkTaken={(dose) => void handleDoseStatusUpdate(dose, "taken")}
-                      isPaused={isActivePlanPaused}
                       updatingDoseId={updatingDoseId}
                     />
-                  ))}
+                  )}
                 </div>
               </section>
 
               <aside className="space-y-6">
-                <section className="rounded-lg border border-border bg-card p-3">
+                <section className="flex justify-end rounded-lg border border-border bg-card p-2">
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="w-full"
+                    className="h-8 w-8"
                     onClick={() => setIsDetailsSidebarMinimized((value) => !value)}
                     title={isDetailsSidebarMinimized ? "Expand details" : "Minimize details"}
                   >
@@ -1046,103 +1318,91 @@ export default function PrescriptionsPage() {
                 </section>
                 {!isDetailsSidebarMinimized && (
                 <>
-                {/* Next Medicines to Take */}
-                <section className="rounded-lg border border-border bg-card p-4 lg:p-5">
-                  <div className="mb-4">
-                    <h2 className="font-display text-lg text-foreground">
-                      Next to Take
-                    </h2>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Across all schedules
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    {upcomingDoses.length > 0 ? (
-                      upcomingDoses.map((dose) => (
-                        <div
-                          key={`upcoming-${dose.planId}-${dose._id}`}
-                          className="rounded-lg border border-border bg-background p-3 hover:bg-secondary/30 transition-colors"
-                        >
-                          <div className="flex items-start gap-3">
-                            <span className="mt-0.5 h-2.5 w-2.5 rounded-full bg-amber-500 shrink-0" />
-                            <div className="min-w-0 flex-1">
-                              <p className="font-medium text-sm text-foreground truncate">
-                                {dose.medicineName}
-                              </p>
-                              <p className="text-xs text-muted-foreground mt-0.5">
-                                {dose.dosage} •{" "}
-                                {format(new Date(dose.scheduledAt), "hh:mm a")}
-                              </p>
-                              <span className="mt-1.5 inline-flex rounded-full bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
-                                {dose.prescriptionTag ||
-                                  `Rx ${dose.prescriptionIndex || 1}`}
-                              </span>
+                {prescriptionFiles.length > 0 && (
+                  <section className="rounded-lg border border-border bg-card overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowPrescriptionFiles((value) => !value)}
+                      className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left transition-colors hover:bg-secondary/50"
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <FileImage size={18} className="text-primary" />
+                        <div className="min-w-0">
+                          <h2 className="font-semibold text-foreground">
+                            Uploaded Prescriptions
+                          </h2>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {prescriptionFiles.length} file{prescriptionFiles.length === 1 ? "" : "s"}
+                          </p>
+                        </div>
+                      </div>
+                      <ChevronDown
+                        size={18}
+                        className={cn(
+                          "text-muted-foreground transition-transform duration-200",
+                          showPrescriptionFiles && "rotate-180",
+                        )}
+                      />
+                    </button>
+
+                    {showPrescriptionFiles && (
+                      <div className="border-t border-border bg-background/50 p-4 space-y-3">
+                        {prescriptionFiles.map((file) => (
+                          <div
+                            key={`${file.scheduleLabel}-${file.tag}-${file.fileName || file.fileUrl}`}
+                            className="rounded-lg border border-border bg-card p-3"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="font-medium text-foreground">
+                                    {file.tag}
+                                  </p>
+                                </div>
+                                <p className="mt-1 truncate text-sm text-muted-foreground">
+                                  {file.fileName || file.fileUrl}
+                                </p>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2">
+                                {file.fileUrl && (
+                                  <Button asChild variant="outline" size="icon" className="h-8 w-8">
+                                    <a
+                                      href={file.fileUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      title="Open prescription"
+                                    >
+                                      <ExternalLink size={16} />
+                                    </a>
+                                  </Button>
+                                )}
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-8 w-8 text-destructive hover:text-destructive"
+                                  title="Delete prescription"
+                                  onClick={() => void handleDeletePrescription(file)}
+                                  disabled={deletingPrescriptionKey === `${file.planId}-${file.index}`}
+                                >
+                                  {deletingPrescriptionKey === `${file.planId}-${file.index}` ? (
+                                    <RefreshCcw size={16} className="animate-spin" />
+                                  ) : (
+                                    <Trash2 size={16} />
+                                  )}
+                                </Button>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-center py-4 text-sm text-muted-foreground">
-                        <Pill
-                          size={20}
-                          className="mx-auto mb-2 text-muted-foreground/50"
-                        />
-                        No pending medicines
+                        ))}
                       </div>
                     )}
-                  </div>
-                </section>
-
-                {prescriptionFiles.length > 0 && (
-                  <section className="rounded-lg border border-border bg-card p-4 lg:p-5">
-                    <div>
-                      <h2 className="font-display text-xl text-foreground">
-                        Uploaded Prescriptions
-                      </h2>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Files used by OCR for this schedule.
-                      </p>
-                    </div>
-                    <div className="mt-4 space-y-3">
-                      {prescriptionFiles.map((file) => (
-                        <div
-                          key={`${file.tag}-${file.fileName}`}
-                          className="rounded-lg border border-border bg-background p-3"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="font-medium text-foreground">
-                                {file.tag}
-                              </p>
-                              <p className="mt-1 truncate text-sm text-muted-foreground">
-                                {file.fileName || file.fileUrl}
-                              </p>
-                            </div>
-                            {file.fileUrl && (
-                              <Button asChild variant="outline" size="sm">
-                                <a
-                                  href={file.fileUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  <ExternalLink size={16} />
-                                  Open
-                                </a>
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
                   </section>
                 )}
 
-                {/* Medicines Drawer/Panel */}
-                <section className="rounded-lg border border-border bg-card overflow-hidden">
-                  <button
-                    onClick={() => setShowMedicinesDrawer(!showMedicinesDrawer)}
-                    className="w-full px-4 py-4 flex items-center justify-between hover:bg-secondary/50 transition-colors"
-                  >
+                {/* Medicines Panel */}
+                <section className="rounded-lg border border-border bg-card overflow-hidden" data-helpman="medicine-list">
+                  <div className="w-full px-4 py-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <Pill size={18} className="text-primary" />
                       <div className="text-left">
@@ -1150,52 +1410,141 @@ export default function PrescriptionsPage() {
                           Medicines
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          {activePlan?.medicines.length || 0} active
+                          {visibleMedicines.length} active
                         </p>
                       </div>
                     </div>
-                    <ChevronDown
-                      size={18}
-                      className={cn(
-                        "text-muted-foreground transition-transform duration-200",
-                        showMedicinesDrawer && "rotate-180",
-                      )}
-                    />
-                  </button>
+                  </div>
 
-                  {showMedicinesDrawer && (
-                    <div className="border-t border-border bg-background/50 animate-accordion-down">
-                      <div className="p-4 space-y-3">
-                        {activePlan && activePlan.medicines.length > 0 ? (
-                          activePlan.medicines.map((medicine) => (
-                            <MedicineCard
-                              key={medicine._id}
-                              medicine={medicine}
-                              onEditName={openMedicineEditor}
-                            />
-                          ))
-                        ) : (
-                          <div className="text-center py-6">
-                            <Pill
-                              className="mx-auto text-muted-foreground mb-2"
-                              size={28}
-                            />
-                            <p className="text-sm text-muted-foreground">
-                              No medicines in schedule
-                            </p>
-                          </div>
-                        )}
-                      </div>
+                  <div className="border-t border-border bg-background/50">
+                    <div className="p-4 space-y-3">
+                      {visibleMedicines.length > 0 ? (
+                        visibleMedicines.map((medicine) => {
+                          const medicineKey = `${medicine.planId}-${medicine._id}`;
+
+                          return (
+                          <MedicineCard
+                            key={medicineKey}
+                            medicine={medicine}
+                            onEditName={openMedicineEditor}
+                            isOpen={openMedicineId === medicineKey}
+                            onToggle={() =>
+                              setOpenMedicineId((current) =>
+                                current === medicineKey ? null : medicineKey,
+                              )
+                            }
+                            canEdit
+                          />
+                          );
+                        })
+                      ) : (
+                        <div className="text-center py-6">
+                          <Pill
+                            className="mx-auto text-muted-foreground mb-2"
+                            size={28}
+                          />
+                          <p className="text-sm text-muted-foreground">
+                            No medicines in schedule
+                          </p>
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </section>
+
                 </>
                 )}
               </aside>
             </div>
-          </div>
         </div>
       </div>
+
+      <Dialog open={isRecordPickerOpen} onOpenChange={setIsRecordPickerOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Add Prescription from Medical Records</DialogTitle>
+            <DialogDescription>
+              Select a saved prescription. Its medicines will be added to the active adherence schedule.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="max-h-[24rem] space-y-3 overflow-y-auto pr-1">
+            {prescriptions.length > 0 ? (
+              prescriptions.map((prescription: Prescription) => {
+                const isSelected = selectedPrescriptionId === prescription.id;
+
+                return (
+                  <button
+                    key={prescription.id}
+                    type="button"
+                    onClick={() => setSelectedPrescriptionId(prescription.id)}
+                    className={cn(
+                      "w-full rounded-lg border bg-card p-4 text-left transition-colors hover:border-primary/60",
+                      isSelected ? "border-primary ring-2 ring-primary/20" : "border-border",
+                    )}
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="font-semibold text-foreground">
+                          {prescription.doctor}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {format(new Date(prescription.date), "MMM d, yyyy")}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">
+                        {prescription.medicines.length} medicine{prescription.medicines.length === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-sm text-foreground">
+                      {prescription.medicines.map((medicine) => medicine.name).join(", ")}
+                    </p>
+                    {prescription.notes && (
+                      <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+                        {prescription.notes}
+                      </p>
+                    )}
+                  </button>
+                );
+              })
+            ) : (
+              <div className="rounded-lg border border-dashed border-border p-6 text-center">
+                <FileImage className="mx-auto text-muted-foreground" size={28} />
+                <p className="mt-3 font-medium text-foreground">
+                  No saved prescriptions found
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Add a medical record with prescription medicines first.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsRecordPickerOpen(false)}
+              disabled={isAddingFromRecord}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="medical"
+              onClick={() => void handleAddPrescriptionFromRecord()}
+              disabled={!selectedPrescriptionId || isAddingFromRecord}
+            >
+              {isAddingFromRecord ? (
+                <RefreshCcw size={16} className="animate-spin" />
+              ) : (
+                <Plus size={16} />
+              )}
+              {isAddingFromRecord ? "Adding..." : "Add Prescription"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {activeDose && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">

@@ -21,6 +21,34 @@ router.post(
   medicationController.appendPrescriptionToPlan
 );
 
+router.post(
+  "/prescription/import",
+  auth,
+  role("doctor"),
+  medicationController.importPrescriptionToPlan
+);
+
+router.post(
+  "/:planId/prescription/import",
+  auth,
+  role("doctor"),
+  medicationController.importPrescriptionToPlan
+);
+
+router.delete(
+  "/:planId/prescriptions/:prescriptionIndex",
+  auth,
+  role("doctor"),
+  medicationController.deletePrescriptionFromPlan
+);
+
+router.delete(
+  "/plans/:planId/prescriptions/:prescriptionIndex",
+  auth,
+  role("doctor"),
+  medicationController.deletePrescriptionFromPlan
+);
+
 router.get(
   "/:patientId",
   auth,

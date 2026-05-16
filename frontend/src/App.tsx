@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppProvider } from "@/contexts/AppContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import MedicineAlarmManager from "@/components/MedicineAlarmManager";
+import { HelpmanGuide } from "@/components/HelpmanGuide";
 import PatientStartPage from "./pages/PatientStartPage";
 import BasicInfoPage from "./pages/BasicInfoPage";
 import PatientLookupPage from "./pages/PatientLookupPage";
@@ -37,6 +38,7 @@ const App = () => (
           <Sonner />
           <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
             <MedicineAlarmManager />
+            <HelpmanGuide />
             <Routes>
               <Route path="/" element={<PatientStartPage />} />
               <Route path="/patient-access" element={<BasicInfoPage />} />
