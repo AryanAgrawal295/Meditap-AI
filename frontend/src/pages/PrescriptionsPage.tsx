@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlarmClock,
@@ -9,13 +9,10 @@ import {
   CheckCircle2,
   Clock,
   Edit3,
-  FileImage,
   HeartPulse,
   Pill,
   RefreshCcw,
   ShieldCheck,
-  Upload,
-  Plus,
   XCircle,
   ExternalLink,
   ChevronDown,
@@ -42,7 +39,6 @@ import {
 } from "@/types/patient";
 import { cn } from "@/lib/utils";
 import PillDetector from "@/components/PillDetector";
-import { DocumentScanner } from "@/components/DocumentScanner";
 import {
   Dialog,
   DialogContent,
@@ -440,7 +436,6 @@ function DayCard({
 export default function PrescriptionsPage() {
   const {
     medicationPlans,
-    uploadPrescriptionForSchedule,
     verifyDoseWithAI,
     updateDoseStatus,
     updateDoseSchedule,
@@ -460,7 +455,6 @@ export default function PrescriptionsPage() {
   const [editingMedicine, setEditingMedicine] = useState<MedicationMedicine | null>(null);
   const [medicineNameValue, setMedicineNameValue] = useState("");
   const [isUpdatingMedicine, setIsUpdatingMedicine] = useState(false);
-  const [isUploadingPrescription, setIsUploadingPrescription] = useState(false);
   const [isChangingPlanStatus, setIsChangingPlanStatus] = useState(false);
   const [isDeletingPlan, setIsDeletingPlan] = useState(false);
   const [updatingDoseId, setUpdatingDoseId] = useState<string | null>(null);
@@ -468,8 +462,6 @@ export default function PrescriptionsPage() {
   const [showMedicinesDrawer, setShowMedicinesDrawer] = useState(false);
   const [isSchedulesSidebarMinimized, setIsSchedulesSidebarMinimized] = useState(false);
   const [isDetailsSidebarMinimized, setIsDetailsSidebarMinimized] = useState(false);
-  const [showPrescriptionScanner, setShowPrescriptionScanner] = useState(false);
-  const prescriptionInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const alarmDose = (location.state as { alarmVerificationDose?: TimelineDose } | null)
@@ -547,73 +539,14 @@ export default function PrescriptionsPage() {
 
   useEffect(() => {
     if (activeScheduleId === "") {
-      setActiveScheduleId(medicationPlans[0]?.id || "new");
+      setActiveScheduleId(medicationPlans[0]?.id || "");
       return;
     }
 
-    if (activeScheduleId === "new") return;
     if (!medicationPlans.some((plan) => plan.id === activeScheduleId)) {
-      setActiveScheduleId(medicationPlans[0]?.id || "new");
+      setActiveScheduleId(medicationPlans[0]?.id || "");
     }
   }, [activeScheduleId, medicationPlans]);
-
-  const handlePrescriptionUpload = async (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      setIsUploadingPrescription(true);
-      const plan = await uploadPrescriptionForSchedule(file, activePlan?.id);
-      setActiveScheduleId(plan.id);
-      toast({
-        title: activePlan ? "Prescription added" : "Schedule created",
-        description: activePlan
-          ? "Medicines were added to this schedule with the next prescription tag."
-          : "AI created a new medication schedule and adherence timeline.",
-      });
-    } catch (error) {
-      toast({
-        title: "Upload failed",
-        description:
-          error instanceof Error
-            ? error.message
-            : "Could not upload the prescription.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsUploadingPrescription(false);
-      event.target.value = "";
-    }
-  };
-
-  const handleScannedPrescriptionCapture = async (file: File) => {
-    try {
-      setIsUploadingPrescription(true);
-      const plan = await uploadPrescriptionForSchedule(file, activePlan?.id);
-      setActiveScheduleId(plan.id);
-      setShowPrescriptionScanner(false);
-      
-      toast({
-        title: activePlan ? "Prescription scanned" : "Schedule created",
-        description: activePlan
-          ? "Medicines were extracted and added to this schedule."
-          : "AI created a new medication schedule from the scanned prescription.",
-      });
-    } catch (error) {
-      toast({
-        title: "Scan failed",
-        description:
-          error instanceof Error
-            ? error.message
-            : "Could not process the scanned prescription.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsUploadingPrescription(false);
-    }
-  };
 
   const handleToggleScheduleStatus = async (plan: MedicationPlan | null = activePlan) => {
     if (!plan) return;
@@ -818,53 +751,18 @@ export default function PrescriptionsPage() {
               Medication Adherence
             </h1>
             <p className="text-muted-foreground mt-1">
-              Open previous schedules, start a new one, or add another
-              prescription to the active schedule.
+              Review schedules created automatically from scanned
+              prescriptions in Add Medical Record.
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Button
               type="button"
-              variant="outline"
-              onClick={() => setActiveScheduleId("new")}
-            >
-              <Plus size={16} />
-              New Schedule
-            </Button>
-            <Button
-              type="button"
               variant="medical"
-              onClick={() => prescriptionInputRef.current?.click()}
-              disabled={isUploadingPrescription}
+              onClick={() => navigate("/add-medical-record")}
             >
-              {isUploadingPrescription ? (
-                <RefreshCcw size={16} className="animate-spin" />
-              ) : (
-                <Upload size={16} />
-              )}
-              {isUploadingPrescription
-                ? "Uploading..."
-                : activePlan
-                  ? "Add Prescription"
-                  : "Upload Prescription"}
+              Add Medical Record
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setShowPrescriptionScanner(true)}
-              disabled={isUploadingPrescription}
-              className="border-primary text-primary hover:bg-primary/10"
-            >
-              <Camera size={16} />
-              Scan Prescription
-            </Button>
-            <input
-              ref={prescriptionInputRef}
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-              className="hidden"
-              onChange={handlePrescriptionUpload}
-            />
           </div>
         </div>
 
@@ -899,22 +797,6 @@ export default function PrescriptionsPage() {
               </div>
 
               <div className="space-y-2">
-                <button
-                  type="button"
-                  onClick={() => setActiveScheduleId("new")}
-                  className={cn(
-                    'w-full rounded-lg border px-3 py-2 text-left transition-all flex items-center gap-2',
-                    isSchedulesSidebarMinimized && 'justify-center px-0',
-                    activeScheduleId === 'new'
-                      ? 'border-primary bg-primary text-primary-foreground shadow-medical'
-                      : 'border-dashed border-border bg-background text-foreground hover:bg-secondary/60'
-                  )}
-                  title={isSchedulesSidebarMinimized ? "New Schedule" : undefined}
-                >
-                  <Plus size={14} />
-                  {!isSchedulesSidebarMinimized && <span className="text-sm font-medium">New Schedule</span>}
-                </button>
-
                 {visiblePlans.map((plan, index) => {
                   const isActive = activeScheduleId === plan.id;
                   const fileCount =
@@ -1088,14 +970,14 @@ export default function PrescriptionsPage() {
                 <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h2 className="font-display text-xl text-foreground">
-                      {activePlan ? "Medicine Timeline" : "Start New Schedule"}
+                      {activePlan ? "Medicine Timeline" : "No Adherence Schedule Yet"}
                     </h2>
                     <p className="text-sm text-muted-foreground">
                       {activePlan
                         ? isActivePlanPaused
                           ? "This schedule is paused. Start it to continue dose tracking."
                           : "Daily tracking organized by date."
-                        : "Upload a prescription to create the first medicine timeline."}
+                        : "Scan the prescription in Add Medical Record. Medicines and dose timings will appear here automatically."}
                     </p>
                   </div>
                   {!activePlan && (
@@ -1106,34 +988,27 @@ export default function PrescriptionsPage() {
                 <div className="space-y-3">
                   {timeline.length === 0 && (
                     <div className="rounded-lg border border-dashed border-border p-8 text-center">
-                      <FileImage
+                      <AlarmClock
                         className="mx-auto text-muted-foreground"
                         size={32}
                       />
                       <p className="mt-3 font-medium text-foreground">
                         {activePlan
                           ? "No medicines in this schedule yet"
-                          : "No schedule selected"}
+                          : "No schedule available"}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        Upload a prescription PDF, JPG, JPEG, or PNG to generate
-                        the todo timeline.
+                        {activePlan
+                          ? "This schedule exists but does not contain medicines yet."
+                          : "Create a medical record from a scanned prescription to build the adherence timeline."}
                       </p>
                       <Button
                         type="button"
-                        variant="medical"
+                        variant="outline"
                         className="mt-4"
-                        onClick={() => prescriptionInputRef.current?.click()}
-                        disabled={isUploadingPrescription || isActivePlanPaused}
+                        onClick={() => navigate("/add-medical-record")}
                       >
-                        {isUploadingPrescription ? (
-                          <RefreshCcw size={16} className="animate-spin" />
-                        ) : (
-                          <Upload size={16} />
-                        )}
-                        {isUploadingPrescription
-                          ? "Uploading..."
-                          : "Upload Prescription"}
+                        Add Medical Record
                       </Button>
                     </div>
                   )}
@@ -1314,34 +1189,6 @@ export default function PrescriptionsPage() {
                     </div>
                   )}
                 </section>
-
-                {activePlan && (
-                  <section className="rounded-lg border border-dashed border-border bg-card p-4 lg:p-5">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <h2 className="font-display text-sm font-semibold text-foreground">
-                          Add Prescription
-                        </h2>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          to this schedule
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => prescriptionInputRef.current?.click()}
-                        disabled={isUploadingPrescription || isActivePlanPaused}
-                      >
-                        {isUploadingPrescription ? (
-                          <RefreshCcw size={14} className="animate-spin" />
-                        ) : (
-                          <Upload size={14} />
-                        )}
-                      </Button>
-                    </div>
-                  </section>
-                )}
                 </>
                 )}
               </aside>
@@ -1465,15 +1312,6 @@ export default function PrescriptionsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Prescription Scanner Modal */}
-      {showPrescriptionScanner && (
-        <DocumentScanner
-          onCapture={handleScannedPrescriptionCapture}
-          onClose={() => setShowPrescriptionScanner(false)}
-          isProcessing={isUploadingPrescription}
-        />
-      )}
     </DashboardLayout>
   );
 }

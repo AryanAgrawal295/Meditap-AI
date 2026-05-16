@@ -35,6 +35,7 @@ function serializeMedicalRecord(record) {
 
   return {
     ...plainRecord,
+    medicationPlanId: plainRecord.medicationPlanId || null,
     attachments: Array.isArray(plainRecord.attachments)
       ? plainRecord.attachments.map(serializeAttachment).filter(Boolean)
       : [],
