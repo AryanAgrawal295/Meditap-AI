@@ -37,6 +37,10 @@ const medicineSchema = new mongoose.Schema(
       trim: true,
     },
     dosage: String,
+    searchText: {
+      type: String,
+      index: true,
+    },
     timing: [String],
     duration: String,
     durationDays: {
@@ -84,6 +88,10 @@ const medicationPlanSchema = new mongoose.Schema(
       ref: "User",
     },
     prescriptionText: String,
+    searchKeywords: {
+      type: String,
+      index: true,
+    },
     source: {
       type: String,
       enum: ["ocr", "manual", "import"],

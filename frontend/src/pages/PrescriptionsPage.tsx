@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   Clock,
   Edit3,
-  FileImage,
   HeartPulse,
   Pill,
   RefreshCcw,
@@ -45,6 +44,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { useApp } from "@/contexts/AppContext";
+import { useSearchHighlight } from "@/hooks/useSearchHighlight";
 import {
   MedicationDose,
   MedicationMedicine,
@@ -816,6 +816,7 @@ export default function PrescriptionsPage() {
   const { toast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
+  const { isHighlighting } = useSearchHighlight();
   const [activeDose, setActiveDose] = useState<TimelineDose | null>(null);
   const [isAlarmVerification, setIsAlarmVerification] = useState(false);
   const [editingDose, setEditingDose] = useState<TimelineDose | null>(null);
@@ -829,12 +830,6 @@ export default function PrescriptionsPage() {
   const [openMedicineId, setOpenMedicineId] = useState<string | null>(null);
   const [showPrescriptionFiles, setShowPrescriptionFiles] = useState(false);
   const [isDetailsSidebarMinimized, setIsDetailsSidebarMinimized] = useState(false);
-  const [isRecordPickerOpen, setIsRecordPickerOpen] = useState(false);
-  const [selectedPrescriptionId, setSelectedPrescriptionId] = useState("");
-  const [isAddingFromRecord, setIsAddingFromRecord] = useState(false);
-  const [deletingPrescriptionKey, setDeletingPrescriptionKey] = useState<string | null>(null);
-  const [calendarMonth, setCalendarMonth] = useState(() => new Date());
-  const prescriptionInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const alarmDose = (location.state as { alarmVerificationDose?: TimelineDose } | null)
@@ -1178,8 +1173,7 @@ export default function PrescriptionsPage() {
             <Button
               type="button"
               variant="medical"
-              onClick={() => prescriptionInputRef.current?.click()}
-              disabled={isUploadingPrescription}
+              onClick={() => navigate("/add-medical-record")}
             >
               {isUploadingPrescription ? (
                 <RefreshCcw size={16} className="animate-spin" />
@@ -1190,13 +1184,6 @@ export default function PrescriptionsPage() {
                 ? "Uploading..."
                 : uploadButtonLabel}
             </Button>
-            <input
-              ref={prescriptionInputRef}
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-              className="hidden"
-              onChange={handlePrescriptionUpload}
-            />
           </div>
         </div>
 
@@ -1260,7 +1247,7 @@ export default function PrescriptionsPage() {
                 <div className="space-y-3">
                   {timeline.length === 0 && (
                     <div className="rounded-lg border border-dashed border-border p-8 text-center">
-                      <FileImage
+                      <AlarmClock
                         className="mx-auto text-muted-foreground"
                         size={32}
                       />
@@ -1272,7 +1259,7 @@ export default function PrescriptionsPage() {
                       </p>
                       <Button
                         type="button"
-                        variant="medical"
+                        variant="outline"
                         className="mt-4"
                         onClick={() => prescriptionInputRef.current?.click()}
                         disabled={isUploadingPrescription}

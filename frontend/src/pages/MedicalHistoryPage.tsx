@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { MedicalHistoryFilters, FilterState, initialFilterState } from '@/components/MedicalHistoryFilters';
 import { subDays, subMonths, subYears, isAfter, isBefore, startOfDay, endOfDay, isToday } from 'date-fns';
 import { MedicalRecord } from '@/types/patient';
+import { useSearchHighlight } from '@/hooks/useSearchHighlight';
 
 const iconMap = [Activity, Heart, Pill, FileText, Syringe];
 const colorMap = [
@@ -38,6 +39,7 @@ export default function MedicalHistoryPage() {
   const navigate = useNavigate();
   const [selectedRecord, setSelectedRecord] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>(initialFilterState);
+  const { isHighlighting } = useSearchHighlight();
 
   const canAddRecords = role === 'doctor';
 

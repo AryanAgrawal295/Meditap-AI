@@ -43,6 +43,7 @@ type BackendMedicalRecord = {
     accessUrl?: string | null;
   } | string> | null;
   fileUrl?: string | null;
+  medicationPlanId?: string | null;
   doctor?: {
     name?: string | null;
   } | string | null;
@@ -95,6 +96,7 @@ interface AppContextType {
     tags: MedicalRecord['tags'];
     attachments?: MedicalAttachment[];
     prescriptions?: string[];
+    medicationPlanId?: string;
   }) => Promise<void>;
   uploadMedicalReport: (file: File) => Promise<MedicalAttachment>;
   processPrescriptionOCR: (file: File) => Promise<{
@@ -558,6 +560,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     tags: MedicalRecord['tags'];
     attachments?: MedicalAttachment[];
     prescriptions?: string[];
+    medicationPlanId?: string;
   }) => {
     if (isHelpmanDemo) {
       throw new Error('Demo mode uses local John Smith data only.');
@@ -585,6 +588,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         tags: record.tags,
         attachments: record.attachments,
         prescriptions: record.prescriptions || [],
+        medicationPlanId: record.medicationPlanId,
       },
     });
 

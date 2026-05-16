@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Upload, ScanText, RefreshCcw } from 'lucide-react';
+import { ArrowLeft, Save, Upload, ScanText, RefreshCcw, Smartphone, CheckCircle2 } from 'lucide-react';
 import { DashboardLayout } from '@/layouts/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,8 +8,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useApp } from '@/contexts/AppContext';
 import { useToast } from '@/hooks/use-toast';
-import { MedicalAttachment, RecordType, Severity, ConditionTag } from '@/types/patient';
+import { MedicalAttachment, MedicationPlan, RecordType, Severity, ConditionTag } from '@/types/patient';
 import { cn } from '@/lib/utils';
+import { DocumentScanner } from '@/components/DocumentScanner';
 
 const recordTypes: { value: RecordType; label: string }[] = [
   { value: 'consultation', label: 'Consultation' },
@@ -93,6 +94,41 @@ function keepShortText(value?: string) {
   return normalized.length > 160 ? normalized.slice(0, 160).trim() : normalized;
 }
 
+function mergeAttachments(existing: MedicalAttachment[], incoming: MedicalAttachment[]) {
+  const merged = [...existing];
+
+  incoming.forEach((attachment) => {
+    const duplicate = merged.some((item) =>
+      (attachment.publicId && item.publicId && attachment.publicId === item.publicId) ||
+      (attachment.accessUrl && item.accessUrl && attachment.accessUrl === item.accessUrl)
+    );
+
+    if (!duplicate) {
+      merged.push(attachment);
+    }
+  });
+
+  return merged;
+}
+
+function getPlanAttachment(plan: MedicationPlan): MedicalAttachment | null {
+  const sourceFile = plan.prescriptionFiles?.[0];
+  const accessUrl = sourceFile?.fileUrl || plan.sourceFileUrl || null;
+
+  if (!accessUrl) {
+    return null;
+  }
+
+  return {
+    publicId: sourceFile?.filePublicId || plan.sourceFilePublicId || null,
+    fileName: sourceFile?.fileName || plan.sourceFileName || null,
+    mimeType: null,
+    resourceType: sourceFile?.fileResourceType || plan.sourceFileResourceType || null,
+    format: sourceFile?.fileFormat || plan.sourceFileFormat || null,
+    accessUrl,
+  };
+}
+
 function toDateInputValue(value?: string) {
   const text = normalizeOCRValue(value || '');
   if (!text) return '';
@@ -166,6 +202,10 @@ export default function AddMedicalRecordPage() {
   const [prescriptionFile, setPrescriptionFile] = useState<File | null>(null);
   const [isScanningPrescription, setIsScanningPrescription] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showDocumentScanner, setShowDocumentScanner] = useState(false);
+  const [isUploadingScannedDocument, setIsUploadingScannedDocument] = useState(false);
+  const [medicationPlanId, setMedicationPlanId] = useState<string | null>(null);
+  const [linkedPrescriptionAttachment, setLinkedPrescriptionAttachment] = useState<MedicalAttachment | null>(null);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -192,7 +232,31 @@ export default function AddMedicalRecordPage() {
       return;
     }
 
-    const newRecord = {
+    let ensuredMedicationPlanId = medicationPlanId;
+    let ensuredPrescriptionAttachment = linkedPrescriptionAttachment;
+
+    try {
+      setIsSaving(true);
+
+      if (prescriptionFile && !ensuredMedicationPlanId) {
+        const medicationPlan = await uploadPrescriptionForSchedule(prescriptionFile);
+        ensuredMedicationPlanId = medicationPlan.id;
+        setMedicationPlanId(medicationPlan.id);
+
+        const generatedAttachment = getPlanAttachment(medicationPlan);
+        if (generatedAttachment) {
+          ensuredPrescriptionAttachment = generatedAttachment;
+          setLinkedPrescriptionAttachment(generatedAttachment);
+          setAttachments((prev) => mergeAttachments(prev, [generatedAttachment]));
+        }
+      }
+
+      const mergedAttachments = mergeAttachments(
+        attachments,
+        ensuredPrescriptionAttachment ? [ensuredPrescriptionAttachment] : [],
+      );
+
+      const newRecord = {
       title: formData.title,
       date: formData.date,
       diagnosis: formData.diagnosis,
@@ -203,23 +267,20 @@ export default function AddMedicalRecordPage() {
       recordType: formData.recordType as RecordType,
       severity: formData.severity,
       tags: formData.tags,
-      attachments: attachments.length > 0 ? attachments : undefined,
+      attachments: mergedAttachments.length > 0 ? mergedAttachments : undefined,
       prescriptions: prescriptions.length > 0 ? prescriptions : undefined,
+      medicationPlanId: ensuredMedicationPlanId || undefined,
     };
 
-    try {
-      setIsSaving(true);
       await addMedicalRecord(newRecord);
 
-      if (prescriptionFile) {
-        await uploadPrescriptionForSchedule(prescriptionFile);
-      }
+      const description = ensuredMedicationPlanId
+        ? `Medical record saved and linked to medication adherence (${prescriptions.length} medicine(s)).`
+        : "Medical record has been successfully added.";
 
       toast({
-        title: "Record Added",
-        description: prescriptionFile
-          ? "Medical record and prescription schedule were created successfully."
-          : "Medical record has been successfully added.",
+        title: "Record Added Successfully",
+        description,
       });
 
       navigate('/medical-history');
@@ -259,6 +320,27 @@ export default function AddMedicalRecordPage() {
     }
   };
 
+  const handleScannedDocumentCapture = async (file: File) => {
+    try {
+      setIsUploadingScannedDocument(true);
+      const uploadedFile = await uploadMedicalReport(file);
+      setAttachments(prev => [...prev, uploadedFile]);
+      
+      toast({
+        title: "Document Scanned",
+        description: "Scanned document has been attached to the record.",
+      });
+    } catch (error) {
+      toast({
+        title: "Scan Upload Failed",
+        description: error instanceof Error ? error.message : "Could not upload the scanned document.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingScannedDocument(false);
+    }
+  };
+
   const handlePrescriptionScan = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
 
@@ -268,6 +350,8 @@ export default function AddMedicalRecordPage() {
 
     try {
       setIsScanningPrescription(true);
+      
+      // Step 1: Process OCR
       const ocrResult = await processPrescriptionOCR(file);
 
       const cleanedConditions = uniqueNormalized(ocrResult.conditions).filter(isLikelyDiagnosis);
@@ -326,12 +410,32 @@ export default function AddMedicalRecordPage() {
               : prev.tags,
       }));
 
-      toast({
-        title: "Prescription scanned",
-        description: diagnosisText
-          ? "OCR completed. Diagnosis was filled conservatively from detected conditions."
-          : "OCR completed. Review detected medicines and fill diagnosis manually if needed.",
-      });
+      // Step 2: Create medication plan immediately (before saving medical record)
+      try {
+        const medicationPlan = await uploadPrescriptionForSchedule(file);
+        setMedicationPlanId(medicationPlan.id);
+        const generatedAttachment = getPlanAttachment(medicationPlan);
+        setLinkedPrescriptionAttachment(generatedAttachment);
+        if (generatedAttachment) {
+          setAttachments((prev) => mergeAttachments(prev, [generatedAttachment]));
+        }
+        
+        toast({
+          title: "Prescription processed successfully",
+          description: `OCR completed and medication adherence timeline created with ${mergedPrescriptionNames.length} medicine(s). All fields have been auto-filled.`,
+          variant: "default",
+        });
+      } catch (planError) {
+        console.warn("Medication plan creation failed, but OCR succeeded:", planError);
+        setMedicationPlanId(null);
+        setLinkedPrescriptionAttachment(null);
+        toast({
+          title: "Prescription scanned (plan creation pending)",
+          description: diagnosisText
+            ? "OCR completed and fields auto-filled. Medication schedule and record attachment will be created when you save this record."
+            : "OCR completed. Medication schedule and record attachment will be created when you save this record.",
+        });
+      }
     } catch (error) {
       toast({
         title: "OCR Failed",
@@ -412,22 +516,36 @@ export default function AddMedicalRecordPage() {
           <div className="medical-card">
             <h2 className="font-display text-lg text-foreground mb-4">Medical Details</h2>
             <div className="space-y-4">
-              <div className="rounded-lg border border-dashed border-border bg-secondary/30 p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
+              <div className={cn(
+                "rounded-lg border border-dashed p-4",
+                medicationPlanId 
+                  ? "border-emerald-300 bg-emerald-50" 
+                  : "border-border bg-secondary/30"
+              )}>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex-1">
                     <h3 className="font-medium text-foreground flex items-center gap-2">
                       <ScanText size={16} className="text-primary" />
                       Scan Prescription
+                      {medicationPlanId && (
+                        <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-emerald-200 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                          <CheckCircle2 size={14} />
+                          Adherence Active
+                        </span>
+                      )}
                     </h3>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Upload a PDF, JPG, JPEG, or PNG prescription to auto-fill this record and create the medication schedule when you save.
+                    <p className={cn("text-sm mt-1", medicationPlanId ? "text-emerald-700" : "text-muted-foreground")}>
+                      {medicationPlanId
+                        ? `✓ Medication adherence timeline created with ${prescriptions.length} medicine(s). Ready to save.`
+                        : "Upload a PDF, JPG, JPEG, or PNG prescription to auto-fill this record and create the medication adherence timeline."}
                     </p>
                   </div>
                   <Button
                     type="button"
-                    variant="outline"
+                    variant={medicationPlanId ? "secondary" : "outline"}
                     onClick={() => prescriptionInputRef.current?.click()}
                     disabled={isScanningPrescription}
+                    className="shrink-0"
                   >
                     {isScanningPrescription ? <RefreshCcw size={16} className="animate-spin" /> : <ScanText size={16} />}
                     {isScanningPrescription ? 'Scanning...' : 'Upload Prescription'}
@@ -554,10 +672,27 @@ export default function AddMedicalRecordPage() {
           <div className="medical-card">
             <h2 className="font-display text-lg text-foreground mb-4">Attachments</h2>
             <div className="space-y-3">
-              <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>
-                <Upload size={16} />
-                Upload Document
-              </Button>
+              <div className="flex gap-2 flex-col sm:flex-row">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingScannedDocument}
+                >
+                  <Upload size={16} />
+                  Upload Document
+                </Button>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => setShowDocumentScanner(true)}
+                  disabled={isUploadingScannedDocument}
+                  className="border-primary text-primary hover:bg-primary/10"
+                >
+                  <Smartphone size={16} />
+                  Scan Document
+                </Button>
+              </div>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -567,10 +702,16 @@ export default function AddMedicalRecordPage() {
               />
               {attachments.length > 0 && (
                 <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Attached Documents ({attachments.length})</p>
                   {attachments.map((file, index) => (
-                    <div key={index} className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <span>File</span>
-                      <span>{file.fileName || `Attachment ${index + 1}`}</span>
+                    <div key={index} className="flex items-center gap-3 rounded-lg border border-border bg-secondary/30 p-2 text-sm">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-primary/10 text-xs font-semibold text-primary">
+                        {index + 1}
+                      </span>
+                      <span className="truncate text-foreground">{file.fileName || `Attachment ${index + 1}`}</span>
+                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                        {file.format ? `.${file.format}` : file.mimeType?.split('/')[1] || 'file'}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -590,6 +731,15 @@ export default function AddMedicalRecordPage() {
           </div>
         </div>
       </form>
+
+      {/* Document Scanner Modal */}
+      {showDocumentScanner && (
+        <DocumentScanner
+          onCapture={handleScannedDocumentCapture}
+          onClose={() => setShowDocumentScanner(false)}
+          isProcessing={isUploadingScannedDocument}
+        />
+      )}
     </DashboardLayout>
   );
 }

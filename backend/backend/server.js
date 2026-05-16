@@ -33,6 +33,7 @@ app.use("/api/analytics", require("./routes/analyticsRoutes"));
 app.use("/api/ai", require("./routes/aiRoutes"));
 app.use("/api/nfc", require("./routes/nfcRoutes"));
 app.use("/api/medication", require("./routes/medicationRoutes"));
+app.use("/api/search", require("./routes/searchRoutes"));
 app.use("/api/admin", adminRoutes);
 app.use("/api/ocr", ocrRoutes);
 
