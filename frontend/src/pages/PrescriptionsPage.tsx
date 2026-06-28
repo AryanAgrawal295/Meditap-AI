@@ -604,8 +604,8 @@ export default function PrescriptionsPage() {
             </div>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[1fr_22rem]">
-            <section className="rounded-lg border border-border bg-card p-4 lg:p-5" data-helpman="adherence-timeline">
+          <div className="grid items-start gap-6 xl:grid-cols-[1fr_22rem]">
+            <section className="h-fit self-start rounded-lg border border-border bg-card p-4 lg:p-5" data-helpman="adherence-timeline">
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h2 className="font-display text-xl text-foreground">Adherence Schedule</h2>

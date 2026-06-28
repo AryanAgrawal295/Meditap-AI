@@ -18,7 +18,6 @@ import {
   FileText,
   Download,
   Share2,
-  Lock,
   Clock,
   AlertCircle,
   Eye,
@@ -177,7 +176,7 @@ export default function ReportsAndExportPage() {
       <div className="space-y-6 p-4 md:p-8">
         {/* Header */}
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Reports & Export</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Export Your Medical Data</h1>
           <p className="text-muted-foreground mt-2">
             Generate reports, export data, and share with healthcare providers securely
           </p>
@@ -194,65 +193,7 @@ export default function ReportsAndExportPage() {
           {/* Export Data Tab */}
           <TabsContent value="export" className="space-y-4">
             <Card>
-              <CardHeader>
-                <CardTitle>Export Your Medical Data</CardTitle>
-                <CardDescription>
-                  Download your health records in various formats for backup or transfer
-                </CardDescription>
-              </CardHeader>
               <CardContent className="space-y-4">
-                {/* Export Preferences */}
-                <div className="border rounded-lg p-4 space-y-3">
-                  <h3 className="font-medium">What to include:</h3>
-                  <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="vitals"
-                        checked={preferences.includeVitals}
-                        onCheckedChange={(checked) =>
-                          setPreferences({
-                            ...preferences,
-                            includeVitals: checked as boolean,
-                          })
-                        }
-                      />
-                      <Label htmlFor="vitals" className="cursor-pointer">
-                        Vital Signs (Blood Pressure, Heart Rate, Temperature, Weight)
-                      </Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="medications"
-                        checked={preferences.includeMedications}
-                        onCheckedChange={(checked) =>
-                          setPreferences({
-                            ...preferences,
-                            includeMedications: checked as boolean,
-                          })
-                        }
-                      />
-                      <Label htmlFor="medications" className="cursor-pointer">
-                        Medications & Prescriptions
-                      </Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="medical-history"
-                        checked={preferences.includeMedicalHistory}
-                        onCheckedChange={(checked) =>
-                          setPreferences({
-                            ...preferences,
-                            includeMedicalHistory: checked as boolean,
-                          })
-                        }
-                      />
-                      <Label htmlFor="medical-history" className="cursor-pointer">
-                        Medical History & Diagnoses
-                      </Label>
-                    </div>
-                  </div>
-                </div>
-
                 {/* Export Options */}
                 <div className="space-y-3">
                   <h3 className="font-medium">Export format:</h3>
@@ -517,21 +458,6 @@ export default function ReportsAndExportPage() {
             </Card>
           </TabsContent>
         </Tabs>
-
-        {/* Data Privacy Info */}
-        <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Lock className="h-5 w-5 text-blue-600" />
-              Data Security & Privacy
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm space-y-2">
-            <p>Exports are generated locally from the patient data currently loaded in the app.</p>
-            <p>The password field is shown only when password protection is selected before export.</p>
-            <p>Temporary share links can be revoked from this page during the current session.</p>
-          </CardContent>
-        </Card>
       </div>
     </DashboardLayout>
   );
